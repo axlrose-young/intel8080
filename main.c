@@ -10,14 +10,17 @@ int debug_mode = 1;
 
 typedef struct {
 	uint8_t memory[0xFFFF]; 
-	uint8_t pc;
+	uint16_t pc;
 }chip;	
 
 typedef struct {
 	char* name;
 	uint8_t size;
-	void (*execute)(chip*, uint8_t);
+	int (*execute)(chip*, uint8_t);
 }instructions;
+
+// All instr prototypes
+int exec_c3(chip* mychip, uint8_t opcode);
 
 instructions table[256] = {
     [0x00] = {"NOP", 1},
@@ -215,7 +218,7 @@ instructions table[256] = {
     [0xC0] = {"RNZ", 1},
     [0xC1] = {"POP B", 1},
     [0xC2] = {"JNZ Adr", 3},
-    [0xC3] = {"JMP Adr", 3},
+    [0xC3] = {"JMP Adr", 3, exec_c3},
     [0xC4] = {"CNZ Adr", 3},
     [0xC5] = {"PUSH B", 1},
     [0xC6] = {"ADI D8", 2},
@@ -295,7 +298,7 @@ void disassemble(uint8_t opcode, chip* mychip)
 	printf("pc: %d   opcode: %x   name: %s   bytes: %d\n",mychip->pc, opcode, 						table[opcode].name, table[opcode].size);
 }
 
-void fetch_execute(chip* mychip, int debug_mode)
+int fetch_execute(chip* mychip, int debug_mode)
 {
 	if(mychip->pc >= 0xFFFF)
 	{
@@ -312,8 +315,6 @@ void fetch_execute(chip* mychip, int debug_mode)
 		disassemble(opcode, mychip);
 	}
 
-	// run the executor
-	table[opcode].execute(mychip, opcode);
 	// increment pc as per instruction (variable)
 	// some instr size is 0 hence increment by 1
 	if(instr == 0)
@@ -324,6 +325,9 @@ void fetch_execute(chip* mychip, int debug_mode)
 	{
 		mychip->pc+=instr;
 	}
+
+	// run the executor
+	return table[opcode].execute(mychip, opcode);
 }
 
 int main()
@@ -338,7 +342,19 @@ int main()
 	is_running = 1;
 	while(is_running)
 	{
-		fetch_execute(&mychip, debug_mode);	
+		int cycle_count = 0;
+		cycle_count += fetch_execute(&mychip, debug_mode);	
 	}
 	return 0;
+}
+
+int exec_c3(chip* mychip, uint8_t opcode)
+{
+	uint8_t high_addr = mychip->pc+=2;	
+	uint8_t low_addr = mychip->pc+=1;	
+
+	uint16_t addr = high_addr << 8 | low_addr;
+	mychip->pc = addr;
+	
+	return 10;
 }
