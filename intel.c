@@ -5,14 +5,14 @@
 bool is_running = 0;
 
 typedef struct {
-	unsigned char memory[0xffff];
+	uint8_t memory[0xffff];
 	uint16_t pc;
 
 	// work registers
-	unsigned char reg[8];	
+	uint8_t reg[8];	
 
 	//flags
-	unsigned char sf, zf, pf, cy, ac;
+	uint8_t sf, zf, pf, cy, ac;
 
 	uint16_t sp;
 }chip;
@@ -20,7 +20,7 @@ typedef struct {
 void chip_init(chip* c)
 {
 	memset(c->memory,0,0xffff);
-	memset(c->reg,0,7);
+	memset(c->reg,0,8);
 	c->pc = 0;
 	c->sf = 0;
 	c->zf = 0;
@@ -43,20 +43,39 @@ void chip_init(chip* c)
 
 // Helper functions
 
-void handle_zf(chip* c)
+uint16_t make_addr(chip* c)
 {
-	uint8_t result = c->reg[7] - (c->memory[c->pc + 1]); 
-	if(result == 0) { c->zf = 1; }
+	return c->memory[c->pc + 2] << 8 | c->memory[c->pc + 1];
+}
+
+void handle_zf(uint8_t result,chip* c)
+{
+	c->zf = (result == 0); 
 }
 
 void handle_cy(chip* c)
 {
-	if(c->reg[7] < (c->memory[c->pc+1])) { c->cy = 1; }
+	c->cy = (c->reg[7] < c->memory[c->pc+1]);
 }
 
-void handle_sf(chip* c)
+void handle_sf(uint8_t result,chip* c)
 {
-	(opcode >> 7 == 1)? c->sf = 1 : c->sf = 0; 
+	c->sf = (result >> 7);
+}
+
+void handle_pf(uint8_t result, chip* c)
+{
+	result ^= result >> 4;
+	result ^= result >> 2;
+	result ^= result >> 1;
+	c->pf = !(result & 1);		
+}
+
+void handle_ac(chip* c)
+{
+	uint8_t value1 = c->reg[7] & 0x0f;
+	uint8_t value2 = c->memory[c->pc+1] & 0x0f;
+	c->ac = (value1 < value2);
 }
 
 void mvi_reg(uint16_t opcode, chip* c)
@@ -91,11 +110,25 @@ int execute(chip* c)
 	{
 		case 0x3e: mvi_reg(opcode, c); return 7;
 		case 0xfe:
-			handle_zf(c);	
+			uint8_t result = c->reg[7] - c->memory[c->pc + 1];
+
+			handle_zf(result,c);	
+			handle_sf(result,c);
+			handle_pf(result,c);
 			handle_cy(c);
-			handle_sf(c);
+			handle_ac(c);
+
 			c->pc+=2;
 			return 7;
+		case 0xca:
+			(c->zf) ? (c->pc = make_addr(c)) : (c->pc += 3);
+			return 10;
+		case 0xc2:
+			!(c->zf) ? (c->pc = make_addr(c)) : (c->pc += 3);
+			return 10;
+		case 0xc3:	
+			c->pc = make_addr(c);
+			return 10;	
 		default: 	
 			is_running = 0;
 			return 0;
