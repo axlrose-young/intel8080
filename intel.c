@@ -1,7 +1,8 @@
-#include <stdio.h>
+ #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 #define DEBUG 1
+
 bool is_running = 0;
 
 typedef struct {
@@ -27,7 +28,7 @@ void chip_init(chip* c)
 	c->pf = 0;
 	c->cy = 0;
 	c->ac = 0;
-	c->sp = 0;
+	c->sp = 0xffff;	
 
 	FILE* pfile = fopen("8080PRE.COM","rb");
 	if(pfile == NULL)
@@ -83,7 +84,26 @@ void mvi_reg(uint16_t opcode, chip* c)
 	c->reg[(opcode>>3)&7] = c->memory[c->pc+1];	
 	c->pc+=2;
 }
+
+void mov_to_reg(uint8_t opcode,chip* c)
+{
+	uint8_t dest = (opcode >> 3) & 7;
+	uint8_t src = opcode & 7;
+
+	if(dest != src) { c->reg[dest] = c->reg[src]; }
+	c->pc+=1;
+}
+
+void push(chip* c)
+{
+	c->sp--;
+	// high byte written first
+	c->memory[c->sp] = ((c->pc+3)>>8) & 0xff;
+	c->sp--;
+	c->memory[c->sp] = ((c->pc+3)) & 0xff;
+}
 	
+void debug(uint8_t opcode,chip* c);
 
 int execute(chip* c)
 {	
@@ -96,18 +116,13 @@ int execute(chip* c)
 	uint8_t opcode = c->memory[c->pc];
 
 	// basic disassembler 
-	if(DEBUG)
-	{
-		printf("Opcode: %x, PC: %x\n",opcode, c->pc);	
-		printf("Registers  B: %x C: %x D: %x E: %x H: %x L: %x M: %x A: %x\n",
-				c->reg[0],c->reg[1],c->reg[2],c->reg[3],
-			       c->reg[4], c->reg[5],c->reg[6],c->reg[7]);	
-		printf("Flags  Z: %d S: %d P: %d CY: %d AC: %d\n",c->zf,c->sf,c->pf,c->cy,c->ac);
-		printf("\t---\n");
-	}
+	if(DEBUG) { debug(opcode,c); }
 
 	switch(opcode)
 	{
+		// MOV commands
+		case 0x7c: mov_to_reg(opcode, c); return 5;
+
 		case 0x3e: mvi_reg(opcode, c); return 7;
 		case 0xfe:
 			uint8_t result = c->reg[7] - c->memory[c->pc + 1];
@@ -126,9 +141,24 @@ int execute(chip* c)
 		case 0xc2:
 			!(c->zf) ? (c->pc = make_addr(c)) : (c->pc += 3);
 			return 10;
-		case 0xc3:	
+		case 0xc3: c->pc = make_addr(c); return 10;	
+		case 0xcd:			
+			push(c);	
 			c->pc = make_addr(c);
-			return 10;	
+			return 17;
+
+		// POP commands
+		case 0xe1:
+			c->reg[5] = c->memory[c->sp];// register L 
+			c->sp++;
+			c->reg[4] = c->memory[c->sp]; // register H
+			c->sp++;
+			
+			c->pc+=1;
+			return 10;
+
+		//case 0x00: c->pc+=1; return 4;
+
 		default: 	
 			is_running = 0;
 			return 0;
@@ -149,4 +179,14 @@ int main()
 		states+=execute(&c);	
 	}
 	return 0;
+}
+
+void debug(uint8_t opcode,chip* c)
+{
+	printf("Opcode: %x, PC: %x\n",opcode, c->pc);	
+	printf("Registers  B: %x C: %x D: %x E: %x H: %x L: %x M: %x A: %x\n",
+			c->reg[0],c->reg[1],c->reg[2],c->reg[3],
+		       c->reg[4], c->reg[5],c->reg[6],c->reg[7]);	
+	printf("Flags  Z: %d S: %d P: %d CY: %d AC: %d Stack Ptr: %x\n",c->zf,c->sf,c->pf,c->cy,c->ac,c->sp);
+	printf("\t---\n");
 }
