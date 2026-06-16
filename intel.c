@@ -44,9 +44,48 @@ void chip_init(chip* c)
 
 // Helper functions
 
+void rp_pop(uint8_t opcode, chip* c)
+{
+	uint8_t rp = (opcode >> 4) & 3;
+	switch(rp)
+	{	
+		case 0: 
+			c->reg[1] = c->memory[c->sp];	 // resgiter C
+			c->sp++;
+			c->reg[0] = c->memory[c->sp];	 // resgiter B
+			c->sp++;			
+			break;
+		case 1:  
+			c->reg[3] = c->memory[c->sp];	 // register E 
+			c->sp++;
+			c->reg[2] = c->memory[c->sp];	 // register D
+			c->sp++;
+			break;
+		case 2: 
+			c->reg[5] = c->memory[c->sp];	 // register L 
+			c->sp++;
+			c->reg[4] = c->memory[c->sp];	 // register H
+			c->sp++;
+			break;
+	}
+}
+
 uint16_t make_addr(chip* c)
 {
 	return c->memory[c->pc + 2] << 8 | c->memory[c->pc + 1];
+}
+
+uint8_t format_flags(chip* c)
+{
+	uint8_t low = 0x00;	
+	low |= c->sf << 7;
+	low |= c->zf << 6;
+	low |= c->ac << 4;
+        low |= c->pf << 2;
+	low |= 0x02;
+	low |= c->cy;	
+	
+	return low;
 }
 
 void handle_zf(uint8_t result,chip* c)
@@ -122,8 +161,14 @@ int execute(chip* c)
 	{
 		// MOV commands
 		case 0x7c: mov_to_reg(opcode, c); return 5;
-
+		case 0x7d: mov_to_reg(opcode, c); return 5;
+		
+		// MVI commands
 		case 0x3e: mvi_reg(opcode, c); return 7;
+
+		// LXI commands
+		case 0x31: c->sp = make_addr(c); c->pc+=3; return 10;
+			
 		case 0xfe:
 			uint8_t result = c->reg[7] - c->memory[c->pc + 1];
 
@@ -147,18 +192,29 @@ int execute(chip* c)
 			c->pc = make_addr(c);
 			return 17;
 
+		// PUSH commands
+		case 0xe5:
+			return 11;
+
 		// POP commands
-		case 0xe1:
-			c->reg[5] = c->memory[c->sp];// register L 
+		case 0xc1: rp_pop(opcode,c); c->pc+=1; return 10;
+		case 0xd1: rp_pop(opcode,c); c->pc+=1; return 10;
+		case 0xe1: rp_pop(opcode,c); c->pc+=1; return 10;
+
+		case 0xf1:				 // POP PSW
+			uint8_t flags = c->memory[c->sp];	
+			c->sf = (flags & 0x80) >> 7;
+			c->zf = (flags & 0x40) >> 6;
+			c->ac = (flags & 0x10) >> 4;
+			c->pf = (flags & 0x04) >> 2;
+			c->cy = flags & 0x01;
+
 			c->sp++;
-			c->reg[4] = c->memory[c->sp]; // register H
+			c->reg[7] = c->memory[c->sp]; 
 			c->sp++;
-			
+
 			c->pc+=1;
 			return 10;
-
-		//case 0x00: c->pc+=1; return 4;
-
 		default: 	
 			is_running = 0;
 			return 0;
