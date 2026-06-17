@@ -1,4 +1,4 @@
- #include <stdio.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 #define DEBUG 1
@@ -194,6 +194,8 @@ int execute(chip* c)
 		// MOV commands
 		case 0x7c: mov_to_reg(opcode, c); return 5;
 		case 0x7d: mov_to_reg(opcode, c); return 5;
+		case 0x78: mov_to_reg(opcode, c); return 5;
+		case 0x79: mov_to_reg(opcode, c); return 5;
 		case 0x7e: mov_from_mem(opcode,c); return 7;
 
 		
@@ -238,6 +240,32 @@ int execute(chip* c)
 
 			c->pc = make_addr(c);
 			return 17;
+
+		// CALL if/not carry
+		case 0xdc:
+			if(c->cy)
+			{
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) >> 8;		
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) & 0xff;
+				c->pc = make_addr(c);
+				return 17;
+			}
+			else { c->pc += 3; return 11; } 
+
+		case 0xd4:
+			if(!c->cy)
+			{
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) >> 8;		
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) & 0xff;
+				c->pc = make_addr(c);
+				return 17;	
+			}
+			else { c->pc += 3; return 11; } 
+
 		// RET Addr
 		case 0xc9:
 			{
@@ -248,6 +276,41 @@ int execute(chip* c)
 				c->pc = (high << 8) | low;
 				return 10;
 			}
+
+		// RET if/not carry
+		case 0xd8:
+		       if(c->cy)
+		       {
+		      		uint8_t low = c->memory[c->sp]; 
+				c->sp++;
+				uint8_t high = c->memory[c->sp];
+				c->sp++;
+				c->pc = (high << 8) | low;
+				return 11;
+		       }	       
+		       else { c->pc+=1; return 5; }
+
+		case 0xd0:
+			if(!c->cy)
+		       {
+		      		uint8_t low = c->memory[c->sp]; 
+				c->sp++;
+				uint8_t high = c->memory[c->sp];
+				c->sp++;
+				c->pc = (high << 8) | low;
+				return 11;
+		       }	       
+		       else { c->pc+=1; return 5; }
+		
+		// JMP if/not carry
+		case 0xda:
+			if(c->cy) { c->pc = make_addr(c); }
+		       	else { c->pc+=1; }	
+			return 10;
+		case 0xd2:
+			if(!c->cy) { c->pc = make_addr(c); }
+		       	else { c->pc+=1; }	
+			return 10;
 
 		// PUSH commands
 		case 0xe5: rp_push(opcode,c); c->pc+=1; return 11;
@@ -294,6 +357,13 @@ int execute(chip* c)
 
 			c->pc+=2;
 			return 7;
+
+		case 0x0f:
+			c->cy = c->reg[7] & 1;
+			c->reg[7] >>= 1;
+			c->reg[7] |= (c->cy << 7);	
+			c->pc+=1;
+			return 4;
 
 		default: 	
 			is_running = 0;
