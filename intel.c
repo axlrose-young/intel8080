@@ -44,6 +44,32 @@ void chip_init(chip* c)
 
 // Helper functions
 
+void rp_push(uint8_t opcode, chip* c)
+{
+	uint8_t rp = (opcode >> 4) & 3;
+	switch(rp)
+	{	
+		case 0: 
+			c->sp--;
+			c->memory[c->sp] = c->reg[0];
+			c->sp--;
+			c->memory[c->sp] = c->reg[1];
+			break;
+		case 1:  
+			c->sp--;
+			c->memory[c->sp] = c->reg[2];
+			c->sp--;
+			c->memory[c->sp] = c->reg[3];
+			break;
+		case 2: 
+			c->sp--;
+			c->memory[c->sp] = c->reg[4];
+			c->sp--;
+			c->memory[c->sp] = c->reg[5];
+			break;
+	}
+}
+
 void rp_pop(uint8_t opcode, chip* c)
 {
 	uint8_t rp = (opcode >> 4) & 3;
@@ -111,11 +137,18 @@ void handle_pf(uint8_t result, chip* c)
 	c->pf = !(result & 1);		
 }
 
-void handle_ac(chip* c)
+void handle_ac_sub(chip* c)
 {
 	uint8_t value1 = c->reg[7] & 0x0f;
 	uint8_t value2 = c->memory[c->pc+1] & 0x0f;
 	c->ac = (value1 < value2);
+}
+
+void handle_ac_add(chip* c)
+{
+	uint8_t value1 = c->reg[7] & 0x0f;
+	uint8_t value2 = c->memory[c->pc+1] & 0x0f;
+	c->ac = ((value1 + value2) > 0x0f)? 1: 0;
 }
 
 void mvi_reg(uint16_t opcode, chip* c)
@@ -133,15 +166,14 @@ void mov_to_reg(uint8_t opcode,chip* c)
 	c->pc+=1;
 }
 
-void push(chip* c)
+void mov_from_mem(uint8_t opcode, chip* c)
 {
-	c->sp--;
-	// high byte written first
-	c->memory[c->sp] = ((c->pc+3)>>8) & 0xff;
-	c->sp--;
-	c->memory[c->sp] = ((c->pc+3)) & 0xff;
+	uint8_t index = (opcode >> 3) & 7;
+	uint16_t data = c->reg[4] << 8 | c->reg[5];
+	c->reg[index] = c->memory[data];
+	c->pc+=1;
 }
-	
+
 void debug(uint8_t opcode,chip* c);
 
 int execute(chip* c)
@@ -162,12 +194,21 @@ int execute(chip* c)
 		// MOV commands
 		case 0x7c: mov_to_reg(opcode, c); return 5;
 		case 0x7d: mov_to_reg(opcode, c); return 5;
+		case 0x7e: mov_from_mem(opcode,c); return 7;
+
 		
 		// MVI commands
 		case 0x3e: mvi_reg(opcode, c); return 7;
 
-		// LXI commands
+		// LOAD commands
+		case 0x21:
+			uint16_t data = make_addr(c);
+			c->reg[4] = (data & 0xff00)>>8;	
+			c->reg[5] = (data & 0xff);
+			c->pc+=3;
+			return 10;
 		case 0x31: c->sp = make_addr(c); c->pc+=3; return 10;
+		case 0x3a: c->reg[7] = c->memory[make_addr(c)]; c->pc+=3; return 13;
 			
 		case 0xfe:
 			uint8_t result = c->reg[7] - c->memory[c->pc + 1];
@@ -176,7 +217,7 @@ int execute(chip* c)
 			handle_sf(result,c);
 			handle_pf(result,c);
 			handle_cy(c);
-			handle_ac(c);
+			handle_ac_sub(c);
 
 			c->pc+=2;
 			return 7;
@@ -187,15 +228,42 @@ int execute(chip* c)
 			!(c->zf) ? (c->pc = make_addr(c)) : (c->pc += 3);
 			return 10;
 		case 0xc3: c->pc = make_addr(c); return 10;	
+
+		// CALL Addr
 		case 0xcd:			
-			push(c);	
+			c->sp--;
+			c->memory[c->sp] = ((c->pc+3)>>8) & 0xff;
+			c->sp--;
+			c->memory[c->sp] = ((c->pc+3)) & 0xff;
+
 			c->pc = make_addr(c);
 			return 17;
+		// RET Addr
+		case 0xc9:
+			{
+				uint8_t low = c->memory[c->sp];
+				c->sp++;
+				uint8_t high = c->memory[c->sp];
+				c->sp++;
+				c->pc = (high << 8) | low;
+				return 10;
+			}
 
 		// PUSH commands
-		case 0xe5:
-			return 11;
+		case 0xe5: rp_push(opcode,c); c->pc+=1; return 11;
+		case 0xd5: rp_push(opcode,c); c->pc+=1; return 11;	
+		case 0xc5: rp_push(opcode,c); c->pc+=1; return 11;	
+		case 0xf5:
+			   uint8_t low = format_flags(c);
+			   uint8_t high = c->reg[7];
+			   c->sp--;
+			   c->memory[c->sp] = high;
+			   c->sp--;
+			   c->memory[c->sp] = low;
 
+			   c->pc+=1;
+			   return 11;
+		
 		// POP commands
 		case 0xc1: rp_pop(opcode,c); c->pc+=1; return 10;
 		case 0xd1: rp_pop(opcode,c); c->pc+=1; return 10;
@@ -215,6 +283,18 @@ int execute(chip* c)
 
 			c->pc+=1;
 			return 10;
+
+		case 0xe6:
+			c->reg[7] &= c->memory[c->pc+1];
+			c->cy = 0;
+			handle_zf(c->reg[7],c);
+			handle_sf(c->reg[7],c);
+			handle_pf(c->reg[7],c);
+			handle_ac_add(c);
+
+			c->pc+=2;
+			return 7;
+
 		default: 	
 			is_running = 0;
 			return 0;
