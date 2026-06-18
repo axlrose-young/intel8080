@@ -137,17 +137,13 @@ void handle_pf(uint8_t result, chip* c)
 	c->pf = !(result & 1);		
 }
 
-void handle_ac_sub(chip* c)
+void handle_ac_sub(uint8_t value1, uint8_t value2, chip* c)
 {
-	uint8_t value1 = c->reg[7] & 0x0f;
-	uint8_t value2 = c->memory[c->pc+1] & 0x0f;
 	c->ac = (value1 < value2);
 }
 
-void handle_ac_add(chip* c)
+void handle_ac_add(uint8_t value1, uint8_t value2,chip* c)
 {
-	uint8_t value1 = c->reg[7] & 0x0f;
-	uint8_t value2 = c->memory[c->pc+1] & 0x0f;
 	c->ac = ((value1 + value2) > 0x0f)? 1: 0;
 }
 
@@ -172,6 +168,56 @@ void mov_from_mem(uint8_t opcode, chip* c)
 	uint16_t data = c->reg[4] << 8 | c->reg[5];
 	c->reg[index] = c->memory[data];
 	c->pc+=1;
+}
+
+int increment(uint8_t index, chip* c)
+{
+	if(index != 6)
+	{
+		c->reg[index]++;	
+		handle_zf(c->reg[index],c);
+		handle_sf(c->reg[index],c);
+		handle_pf(c->reg[index],c);
+		handle_ac_sub(c->reg[7],0x01,c);
+		c->pc+=1;
+		return 5;
+	}
+	else 
+	{
+		uint16_t addr = (c->reg[4] << 8) | c->reg[5];	
+		c->memory[addr]++;
+		handle_zf(c->memory[addr],c);
+		handle_sf(c->memory[addr],c);
+		handle_pf(c->memory[addr],c);
+		handle_ac_add(c->memory[addr], 0x01,c);
+		c->pc+=1;
+		return 10;
+	}
+}
+
+int decrement(uint8_t index, chip* c)
+{
+	if(index != 6)
+	{
+		c->reg[index]--;	
+		handle_zf(c->reg[index],c);
+		handle_sf(c->reg[index],c);
+		handle_pf(c->reg[index],c);
+		handle_ac_sub(c->reg[7],0x01,c);
+		c->pc+=1;
+		return 5;
+	}
+	else 
+	{
+		uint16_t addr = (c->reg[4] << 8) | c->reg[5];	
+		c->memory[addr]--;
+		handle_zf(c->memory[addr],c);
+		handle_sf(c->memory[addr],c);
+		handle_pf(c->memory[addr],c);
+		handle_ac_sub(c->memory[addr], 0x01,c);
+		c->pc+=1;
+		return 10;
+	}
 }
 
 void debug(uint8_t opcode,chip* c);
@@ -201,6 +247,7 @@ int execute(chip* c)
 		
 		// MVI commands
 		case 0x3e: mvi_reg(opcode, c); return 7;
+		case 0x06: mvi_reg(opcode, c); return 7;
 
 		// LOAD commands
 		case 0x21:
@@ -213,16 +260,19 @@ int execute(chip* c)
 		case 0x3a: c->reg[7] = c->memory[make_addr(c)]; c->pc+=3; return 13;
 			
 		case 0xfe:
+			{
 			uint8_t result = c->reg[7] - c->memory[c->pc + 1];
-
+			uint8_t value1 = c->reg[7] & 0x0f;
+			uint8_t value2 = c->memory[c->pc+1] & 0x0f;
 			handle_zf(result,c);	
 			handle_sf(result,c);
 			handle_pf(result,c);
 			handle_cy(c);
-			handle_ac_sub(c);
+			handle_ac_sub(value1,value2,c);
 
 			c->pc+=2;
 			return 7;
+			}
 		case 0xca:
 			(c->zf) ? (c->pc = make_addr(c)) : (c->pc += 3);
 			return 10;
@@ -265,6 +315,72 @@ int execute(chip* c)
 				return 17;	
 			}
 			else { c->pc += 3; return 11; } 
+		case 0xec:
+			if(c->pf)
+			{
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) >> 8;	
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) & 0xff;
+				c->pc = make_addr(c);
+				return 17;
+			}
+			else { c->pc+=3; return 11; }
+		case 0xe4:
+			if(!c->pf)
+			{
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) >> 8;	
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) & 0xff;
+				c->pc = make_addr(c);
+				return 17;
+			}
+			else { c->pc+=3; return 11; }
+		case 0xcc:
+			if(c->zf)
+			{
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) >> 8;	
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) & 0xff;
+				c->pc = make_addr(c);
+				return 17;
+			}
+			else { c->pc+=3; return 11; }
+		case 0xc4:
+			if(!c->zf)
+			{
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) >> 8;	
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) & 0xff;
+				c->pc = make_addr(c);
+				return 17;
+			}
+			else { c->pc+=3; return 11; }
+		case 0xfc:
+			if(c->sf)
+			{
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) >> 8;	
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) & 0xff;
+				c->pc = make_addr(c);
+				return 17;
+			}
+			else { c->pc+=3; return 11; }
+		case 0xf4:
+			if(!c->sf)
+			{
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) >> 8;	
+				c->sp--;
+				c->memory[c->sp] = (c->pc+3) & 0xff;
+				c->pc = make_addr(c);
+				return 17;
+			}
+			else { c->pc+=3; return 11; }
 
 		// RET Addr
 		case 0xc9:
@@ -301,7 +417,72 @@ int execute(chip* c)
 				return 11;
 		       }	       
 		       else { c->pc+=1; return 5; }
-		
+		case 0xe8:
+			if(c->pf)
+			{
+				uint8_t low = c->memory[c->sp];
+				c->sp++;
+				uint8_t high = c->memory[c->sp];
+				c->sp++;
+				c->pc = (high << 8) | low;	
+				return 11;
+			}
+			else { c->pc+=1; return 5; }
+		case 0xe0:
+			if(!c->pf)
+			{
+				uint8_t low = c->memory[c->sp];
+				c->sp++;
+				uint8_t high = c->memory[c->sp];
+				c->sp++;
+				c->pc = (high << 8) | low;	
+				return 11;
+			}
+			else { c->pc+=1; return 5; }
+		case 0xc8:
+			if(c->zf)
+			{
+				uint8_t low = c->memory[c->sp];
+				c->sp++;
+				uint8_t high = c->memory[c->sp];
+				c->sp++;
+				c->pc = (high << 8) | low;	
+				return 11;
+			}
+			else { c->pc+=1; return 5; }
+		case 0xc0:
+			if(!c->zf)
+			{
+				uint8_t low = c->memory[c->sp];
+				c->sp++;
+				uint8_t high = c->memory[c->sp];
+				c->sp++;
+				c->pc = (high << 8) | low;	
+				return 11;
+			}
+			else { c->pc+=1; return 5; }
+		case 0xf8:
+			if(c->sf)
+			{
+				uint8_t low = c->memory[c->sp];
+				c->sp++;
+				uint8_t high = c->memory[c->sp];
+				c->sp++;
+				c->pc = (high << 8) | low;	
+				return 11;
+			}
+			else { c->pc+=1; return 5; }
+		case 0xf0:
+			if(!c->sf)
+			{
+				uint8_t low = c->memory[c->sp];
+				c->sp++;
+				uint8_t high = c->memory[c->sp];
+				c->sp++;
+				c->pc = (high << 8) | low;	
+				return 11;
+			}
+			else { c->pc+=1; return 5; }
 		// JMP if/not carry
 		case 0xda:
 			if(c->cy) { c->pc = make_addr(c); }
@@ -310,6 +491,23 @@ int execute(chip* c)
 		case 0xd2:
 			if(!c->cy) { c->pc = make_addr(c); }
 		       	else { c->pc+=1; }	
+			return 10;
+
+		case 0xea:
+			if(c->pf) { c->pc = make_addr(c); }
+			else { c->pc+=3; }
+			return 10;
+		case 0xe2:
+			if(!c->pf) { c->pc = make_addr(c); }
+			else { c->pc+=3; }
+			return 10;
+		case 0xfa:
+			if(c->sf) { c->pc = make_addr(c); }
+			else { c->pc+=3; }
+			return 10;
+		case 0xf2:
+			if(!c->sf) { c->pc = make_addr(c); }
+			else { c->pc+=3; }
 			return 10;
 
 		// PUSH commands
@@ -347,24 +545,40 @@ int execute(chip* c)
 			c->pc+=1;
 			return 10;
 
-		case 0xe6:
-			c->reg[7] &= c->memory[c->pc+1];
-			c->cy = 0;
-			handle_zf(c->reg[7],c);
-			handle_sf(c->reg[7],c);
-			handle_pf(c->reg[7],c);
-			handle_ac_add(c);
+		case 0xe9:				// PCHL
+			c->pc = (c->reg[4] << 8) | c->reg[5];
+			return 5;
 
-			c->pc+=2;
-			return 7;
+		case 0xe6:
+			{
+				c->reg[7] &= c->memory[c->pc+1];
+				c->cy = 0;
+				uint8_t value1 = c->reg[7] & 0x0f;
+				uint8_t value2 = c->memory[c->pc+1] & 0x0f;
+				handle_zf(c->reg[7],c);
+				handle_sf(c->reg[7],c);
+				handle_pf(c->reg[7],c);
+				handle_ac_add(value1,value2,c);
+
+				c->pc+=2;
+				return 7;
+			}
 
 		case 0x0f:
 			c->cy = c->reg[7] & 1;
 			c->reg[7] >>= 1;
 			c->reg[7] |= (c->cy << 7);	
 			c->pc+=1;
-			return 4;
+			return 4; 
 
+		// DCR register
+		case 0x05: 
+			return decrement((opcode >> 3) & 7,c);
+									
+		// INR register
+		case 0x3c: 
+			return increment((opcode >> 3) & 7,c);
+						
 		default: 	
 			is_running = 0;
 			return 0;
@@ -384,6 +598,7 @@ int main()
 	{
 		states+=execute(&c);	
 	}
+	printf("states: %d\n",states);
 	return 0;
 }
 
