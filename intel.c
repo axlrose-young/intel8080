@@ -101,6 +101,7 @@ uint16_t make_addr(chip* c)
 	return c->memory[c->pc + 2] << 8 | c->memory[c->pc + 1];
 }
 
+// Making PSW low byte
 uint8_t format_flags(chip* c)
 {
 	uint8_t low = 0x00;	
@@ -178,7 +179,7 @@ int increment(uint8_t index, chip* c)
 		handle_zf(c->reg[index],c);
 		handle_sf(c->reg[index],c);
 		handle_pf(c->reg[index],c);
-		handle_ac_sub(c->reg[7],0x01,c);
+		handle_ac_sub(c->reg[index],0x01,c);
 		c->pc+=1;
 		return 5;
 	}
@@ -195,6 +196,41 @@ int increment(uint8_t index, chip* c)
 	}
 }
 
+int increment_rp(uint8_t opcode, chip* c)
+{
+	uint8_t rp = (opcode >> 4) & 0xff;
+	switch(rp)
+	{
+		case 0: 
+			{
+				uint16_t val = (c->reg[0]<<8) | c->reg[1]; 
+				val++;
+				c->reg[0] = val >> 8;
+				c->reg[1] = val & 0xff;
+				break;
+			}
+		case 1: 
+			{
+				uint16_t val = (c->reg[2]<<8) | c->reg[3]; 
+				val++;
+				c->reg[2] = val >> 8;
+				c->reg[3] = val & 0xff;
+				break;
+			}
+		case 2: 
+			{
+				uint16_t val = (c->reg[4]<<8) | c->reg[5]; 
+				val++;
+				c->reg[4] = val >> 8;
+				c->reg[5] = val & 0xff;
+				break;	
+			}
+		case 3: 
+			c->sp++; 
+			break;
+	}
+}
+
 int decrement(uint8_t index, chip* c)
 {
 	if(index != 6)
@@ -203,7 +239,7 @@ int decrement(uint8_t index, chip* c)
 		handle_zf(c->reg[index],c);
 		handle_sf(c->reg[index],c);
 		handle_pf(c->reg[index],c);
-		handle_ac_sub(c->reg[7],0x01,c);
+		handle_ac_sub(c->reg[index],0x01,c);
 		c->pc+=1;
 		return 5;
 	}
@@ -217,6 +253,30 @@ int decrement(uint8_t index, chip* c)
 		handle_ac_sub(c->memory[addr], 0x01,c);
 		c->pc+=1;
 		return 10;
+	}
+}
+
+void lxi(uint8_t opcode, chip* c)
+{
+	uint8_t rp = (opcode >> 4) & 3;
+	printf("%d\n",rp);
+	switch(rp)
+	{
+		case 0:	
+			c->reg[0] = c->memory[c->pc+2];
+			c->reg[1] = c->memory[c->pc+1];
+			break;
+		case 1:
+			c->reg[2] = c->memory[c->pc+2];
+			c->reg[3] = c->memory[c->pc+1];
+			break;
+		case 2:
+			c->reg[4] = c->memory[c->pc+2];
+			c->reg[5] = c->memory[c->pc+1];
+			break;
+		case 3:
+			c->sp = make_addr(c);
+			break;
 	}
 }
 
@@ -242,21 +302,22 @@ int execute(chip* c)
 		case 0x7d: mov_to_reg(opcode, c); return 5;
 		case 0x78: mov_to_reg(opcode, c); return 5;
 		case 0x79: mov_to_reg(opcode, c); return 5;
-		case 0x7e: mov_from_mem(opcode,c); return 7;
+		case 0x6f: mov_to_reg(opcode, c); return 5;
+		case 0x5f: mov_to_reg(opcode, c); return 5;
+		case 0x7e: mov_from_mem(opcode,c); return 7; 
 
 		
 		// MVI commands
 		case 0x3e: mvi_reg(opcode, c); return 7;
 		case 0x06: mvi_reg(opcode, c); return 7;
+		case 0x26: mvi_reg(opcode, c); return 7;
+		case 0x0e: mvi_reg(opcode, c); return 7;
 
-		// LOAD commands
-		case 0x21:
-			uint16_t data = make_addr(c);
-			c->reg[4] = (data & 0xff00)>>8;	
-			c->reg[5] = (data & 0xff);
-			c->pc+=3;
-			return 10;
-		case 0x31: c->sp = make_addr(c); c->pc+=3; return 10;
+
+		// LOAD commands (LXI)
+		case 0x11: lxi(opcode,c); c->pc+=3; return 10;
+		case 0x21: lxi(opcode,c); c->pc+=3; return 10;
+		case 0x31: lxi(opcode,c); c->pc+=3; return 10;
 		case 0x3a: c->reg[7] = c->memory[make_addr(c)]; c->pc+=3; return 13;
 			
 		case 0xfe:
@@ -571,13 +632,14 @@ int execute(chip* c)
 			c->pc+=1;
 			return 4; 
 
-		// DCR register
-		case 0x05: 
-			return decrement((opcode >> 3) & 7,c);
+		// DCR commands
+		case 0x05: return decrement((opcode >> 3) & 7,c);
 									
-		// INR register
-		case 0x3c: 
-			return increment((opcode >> 3) & 7,c);
+		// INR commands
+		case 0x3c: return increment((opcode >> 3) & 7,c);
+
+		// INX commands
+		case 0x23: increment_rp(opcode,c); c->pc+=1; return 5;
 						
 		default: 	
 			is_running = 0;
