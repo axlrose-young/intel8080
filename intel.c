@@ -30,7 +30,7 @@ void chip_init(chip* c)
 	c->ac = 0;
 	c->sp = 0xffff;	
 
-	FILE* pfile = fopen("8080PRE.COM","rb");
+	FILE* pfile = fopen("8080EXM.COM","rb");
 	if(pfile == NULL)
 	{
 		perror("Error opening file");	
@@ -259,7 +259,6 @@ int decrement(uint8_t index, chip* c)
 void lxi(uint8_t opcode, chip* c)
 {
 	uint8_t rp = (opcode >> 4) & 3;
-	printf("%d\n",rp);
 	switch(rp)
 	{
 		case 0:	
@@ -319,7 +318,18 @@ int execute(chip* c)
 		case 0x21: lxi(opcode,c); c->pc+=3; return 10;
 		case 0x31: lxi(opcode,c); c->pc+=3; return 10;
 		case 0x3a: c->reg[7] = c->memory[make_addr(c)]; c->pc+=3; return 13;
-			
+		// LHLD
+		case 0x2a:
+			c->reg[5] = c->memory[make_addr(c)];		// reg L
+			c->reg[4] = c->memory[make_addr(c) + 1];	// reg H 
+			c->pc+=3;
+			return 16;
+		// SPHL
+		case 0xf9:	
+			c->sp = (c->reg[4] << 8) | c->reg[5];
+			c->pc+=1;
+			return 5;
+
 		case 0xfe:
 			{
 			uint8_t result = c->reg[7] - c->memory[c->pc + 1];
@@ -666,10 +676,10 @@ int main()
 
 void debug(uint8_t opcode,chip* c)
 {
-	printf("Opcode: %x, PC: %x\n",opcode, c->pc);	
-	printf("Registers  B: %x C: %x D: %x E: %x H: %x L: %x M: %x A: %x\n",
+	fprintf(stderr,"Opcode: %x, PC: %x\n",opcode, c->pc);	
+	fprintf(stderr,"Registers  B: %x C: %x D: %x E: %x H: %x L: %x M: %x A: %x\n",
 			c->reg[0],c->reg[1],c->reg[2],c->reg[3],
 		       c->reg[4], c->reg[5],c->reg[6],c->reg[7]);	
-	printf("Flags  Z: %d S: %d P: %d CY: %d AC: %d Stack Ptr: %x\n",c->zf,c->sf,c->pf,c->cy,c->ac,c->sp);
-	printf("\t---\n");
+	fprintf(stderr,"Flags  Z: %d S: %d P: %d CY: %d AC: %d Stack Ptr: %x\n",c->zf,c->sf,c->pf,c->cy,c->ac,c->sp);
+	fprintf(stderr,"\t---\n");
 }
