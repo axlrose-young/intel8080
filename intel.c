@@ -280,6 +280,7 @@ void lxi(uint8_t opcode, chip* c)
 }
 
 void debug(uint8_t opcode,chip* c);
+void mini_bdos(chip* c);
 
 int execute(chip* c)
 {	
@@ -287,6 +288,12 @@ int execute(chip* c)
 	if(c->pc > 0xffff)
 	{
 		is_running = 0;	
+	}
+	
+	// MINI BDOS STUB
+	if(c->pc == 5)
+	{
+		mini_bdos(c);	
 	}
 
 	uint8_t opcode = c->memory[c->pc];
@@ -682,4 +689,28 @@ void debug(uint8_t opcode,chip* c)
 		       c->reg[4], c->reg[5],c->reg[6],c->reg[7]);	
 	fprintf(stderr,"Flags  Z: %d S: %d P: %d CY: %d AC: %d Stack Ptr: %x\n",c->zf,c->sf,c->pf,c->cy,c->ac,c->sp);
 	fprintf(stderr,"\t---\n");
+}
+
+void mini_bdos(chip* c)
+{
+	switch(c->reg[1])
+	{
+		case 9:
+			c->pc = (c->reg[2] << 8) | c->reg[3];	
+			while(c->memory[c->pc] != '$')
+			{
+				printf("%c",c->memory[c->pc]);	
+				c->pc+=1;
+			}
+			// RET to addr after CALL 5
+			uint8_t low = c->memory[c->sp]; 			
+			c->sp++;
+			uint8_t high = c->memory[c->sp];
+			c->sp++;
+			c->pc = (high << 8) | low;
+			break;
+		default:
+			printf("unimplemented bdos: %d\n",c->reg[1]);
+			break;
+	}
 }
