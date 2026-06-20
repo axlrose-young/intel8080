@@ -427,11 +427,15 @@ int execute(chip* c)
 		case 0x54: mov_to_reg(opcode, c); return 5;
 		case 0x5d: mov_to_reg(opcode, c); return 5;
 		case 0x7b: mov_to_reg(opcode, c); return 5;
-		
+		case 0x4f: mov_to_reg(opcode, c); return 5;
+		case 0x7a: mov_to_reg(opcode, c); return 5;
+		case 0x47: mov_to_reg(opcode, c); return 5;
+
 		case 0x7e: mov_from_mem(opcode,c); return 7; 
 		case 0x66: mov_from_mem(opcode,c); return 7; 
 		case 0x5e: mov_from_mem(opcode,c); return 7; 
-		
+		case 0x77: mov_from_mem(opcode,c); return 7; 		
+
 		// MVI commands
 		case 0x3e: mvi_reg(opcode, c); return 7;
 		case 0x06: mvi_reg(opcode, c); return 7;
@@ -793,7 +797,8 @@ int execute(chip* c)
 									
 		// INR commands
 		case 0x3c: return increment(opcode,c);
-		
+		case 0x14: return increment(opcode,c);
+
 		// DCX commands
 		case 0x2b: decrement_rp(opcode,c); c->pc+=1; return 5;
 		case 0x0b: decrement_rp(opcode,c); c->pc+=1; return 5;
@@ -816,6 +821,14 @@ int execute(chip* c)
 
 			   c->pc+=1;
 			   return 4;
+
+		case 0x07:
+			c->cy = (c->reg[7] >> 7);
+			c->reg[7] <<= 1;
+			c->reg[7] |= c->cy;
+
+			c->pc+=1;
+			return 4;
 		default: 	
 			is_running = 0;
 			return 0;
