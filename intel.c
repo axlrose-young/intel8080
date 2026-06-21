@@ -16,6 +16,8 @@ typedef struct {
 	uint8_t sf, zf, pf, cy, ac;
 
 	uint16_t sp;
+	
+	bool  INTE;
 }chip;
 
 void chip_init(chip* c)
@@ -29,6 +31,7 @@ void chip_init(chip* c)
 	c->cy = 0;
 	c->ac = 0;
 	c->sp = 0xffff;	
+	c->INTE = 0;
 
 	FILE* pfile = fopen("8080EXM.COM","rb");
 	if(pfile == NULL)
@@ -196,6 +199,33 @@ int ora(uint8_t opcode, chip* c)
 		return 7;
 	}
 }
+
+int xra(uint8_t opcode, chip* c)
+{
+	uint8_t src = opcode & 7;
+	if(src != 6)
+	{
+		c->reg[7] ^= c->reg[src];
+		handle_pf(c->reg[7],c);
+		handle_sf(c->reg[7],c);
+		handle_zf(c->reg[7],c);
+		c->cy = c->ac = 0;	
+		c->pc+=1;
+		return 4;
+	}
+	else 
+	{
+		uint16_t addr = (c->reg[4] << 8) | c->reg[5];
+		c->reg[7] ^= c->memory[addr];	
+		handle_pf(c->reg[7],c);
+		handle_sf(c->reg[7],c);
+		handle_zf(c->reg[7],c);
+		c->cy = c->ac = 0;
+		c->pc+=1;
+		return 7;
+	}
+}
+
 
 int ana(uint8_t opcode, chip* c)
 {
@@ -430,11 +460,14 @@ int execute(chip* c)
 		case 0x4f: mov_to_reg(opcode, c); return 5;
 		case 0x7a: mov_to_reg(opcode, c); return 5;
 		case 0x47: mov_to_reg(opcode, c); return 5;
+		case 0x69: mov_to_reg(opcode, c); return 5;
 
 		case 0x7e: mov_from_mem(opcode,c); return 7; 
 		case 0x66: mov_from_mem(opcode,c); return 7; 
 		case 0x5e: mov_from_mem(opcode,c); return 7; 
 		case 0x77: mov_from_mem(opcode,c); return 7; 		
+		case 0x46: mov_from_mem(opcode,c); return 7; 
+		case 0x4e: mov_from_mem(opcode,c); return 7;
 
 		// MVI commands
 		case 0x3e: mvi_reg(opcode, c); return 7;
@@ -450,9 +483,15 @@ int execute(chip* c)
 		// ORA commands
 		case 0xb6: return ora(opcode,c);
 		case 0xb1: return ora(opcode,c);
+
+		// XRA commands
+		case 0xae: return xra(opcode,c);
+		case 0xa8: return xra(opcode,c); 
+		case 0xa9: return xra(opcode,c);
 	
 		// ANA
 		case 0xa1: return ana(opcode,c);
+		case 0xa0: return ana(opcode,c);
 
 		// LOAD commands (LXI)
 		case 0x01: lxi(opcode,c); c->pc+=3; return 10;
@@ -463,9 +502,12 @@ int execute(chip* c)
 		// Loading to memory from accumulator
 		case 0x3a: c->reg[7] = c->memory[make_addr(c)]; c->pc+=3; return 13;
 		case 0x32: c->memory[make_addr(c)] = c->reg[7]; c->pc+=3; return 13;
-		
 		case 0x12: 
 			   c->memory[(c->reg[2] << 8) | c->reg[3]] = c->reg[7];
+			   c->pc+=1;
+			   return 7;
+		case 0x1a:
+			   c->reg[7] = c->memory[(c->reg[2] << 8) | c->reg[3]];
 			   c->pc+=1;
 			   return 7;
 		// LHLD
@@ -474,6 +516,14 @@ int execute(chip* c)
 			c->reg[4] = c->memory[make_addr(c) + 1];	// reg H 
 			c->pc+=3;
 			return 16;
+
+		// SHLD
+		case 0x22: 
+			c->memory[make_addr(c)] = c->reg[5];
+			c->memory[make_addr(c)+1] = c->reg[4];
+			c->pc+=3;
+			return 16;
+
 		// SPHL
 		case 0xf9:	
 			c->sp = (c->reg[4] << 8) | c->reg[5];
@@ -794,10 +844,12 @@ int execute(chip* c)
 
 		// DCR commands
 		case 0x05: return decrement(opcode,c);
+		case 0x0d: return decrement(opcode,c);
 									
 		// INR commands
 		case 0x3c: return increment(opcode,c);
 		case 0x14: return increment(opcode,c);
+		case 0x34: return increment(opcode,c);
 
 		// DCX commands
 		case 0x2b: decrement_rp(opcode,c); c->pc+=1; return 5;
@@ -807,7 +859,10 @@ int execute(chip* c)
 		case 0x23: increment_rp(opcode,c); c->pc+=1; return 5;
 		case 0x13: increment_rp(opcode,c); c->pc+=1; return 5;
 						
+		case 0x09: dad(opcode,c); c->pc+=1; return 10;
 		case 0x19: dad(opcode,c); c->pc+=1; return 10;
+		case 0x29: dad(opcode,c); c->pc+=1; return 10;
+		case 0x39: dad(opcode,c); c->pc+=1; return 10;
 		case 0xeb: 
 			   uint16_t hl_rp = (c->reg[4] << 8) | c->reg[5];
 			   uint16_t de_rp = (c->reg[2] << 8) | c->reg[3];
@@ -829,6 +884,12 @@ int execute(chip* c)
 
 			c->pc+=1;
 			return 4;
+
+		case 0xf3: c->INTE = 0; c->pc+=1; return 4;
+		case 0xfb: c->INTE = 1; c->pc+=1; return 4;
+
+		case 0x00: c->pc+=1; return 4;
+		case 0x37: c->cy = 1; c->pc+=1; return 4;
 		default: 	
 			is_running = 0;
 			return 0;
