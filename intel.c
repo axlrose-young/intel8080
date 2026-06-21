@@ -17,7 +17,7 @@ typedef struct {
 
 	uint16_t sp;
 	
-	bool  INTE;
+	bool INTE;
 }chip;
 
 void chip_init(chip* c)
@@ -169,8 +169,16 @@ void mov_to_reg(uint8_t opcode,chip* c)
 void mov_from_mem(uint8_t opcode, chip* c)
 {
 	uint8_t index = (opcode >> 3) & 7;
-	uint16_t data = c->reg[4] << 8 | c->reg[5];
+	uint16_t data = (c->reg[4] << 8) | c->reg[5];
 	c->reg[index] = c->memory[data];
+	c->pc+=1;
+}
+
+void mov_to_mem(uint8_t opcode, chip* c)
+{
+	uint8_t index = (opcode & 7);
+	uint16_t data = (c->reg[4] << 8) | c->reg[5];
+	c->memory[data] = c->reg[index];
 	c->pc+=1;
 }
 
@@ -232,7 +240,7 @@ int ana(uint8_t opcode, chip* c)
 	uint8_t index = opcode & 7;	
 	if(index != 6)
 	{
-		handle_ac_add((c->reg[7] & 0x0f), (c->reg[index] & 0x0f), c);
+		c->ac = (((c->reg[7] | c->reg[index]) & 0x08) != 0);		
 		c->reg[7] &= c->reg[index];
 		handle_pf(c->reg[7],c);		
     		handle_sf(c->reg[7],c);		
@@ -245,7 +253,7 @@ int ana(uint8_t opcode, chip* c)
 	else
 	{
 		uint16_t addr = (c->reg[4] << 8) | c->reg[5];	
-		handle_ac_add((c->reg[7] & 0x0f), (c->memory[addr] & 0x0f), c);
+		c->ac = (((c->reg[7] | c->reg[index]) & 0x08) != 0);
 		c->reg[7] &= c->memory[addr];
 		handle_pf(c->reg[7],c);		
     		handle_sf(c->reg[7],c);		
@@ -266,7 +274,7 @@ int increment(uint8_t opcode, chip* c)
 		handle_zf(c->reg[index],c);
 		handle_sf(c->reg[index],c);
 		handle_pf(c->reg[index],c);
-		handle_ac_sub(c->reg[index],0x01,c);
+		handle_ac_add(c->reg[index],0x01,c);
 		c->pc+=1;
 		return 5;
 	}
@@ -441,6 +449,7 @@ int execute(chip* c)
 	}
 
 	uint8_t opcode = c->memory[c->pc];
+	
 
 	// basic disassembler 
 	if(DEBUG) { debug(opcode,c); }
@@ -465,9 +474,11 @@ int execute(chip* c)
 		case 0x7e: mov_from_mem(opcode,c); return 7; 
 		case 0x66: mov_from_mem(opcode,c); return 7; 
 		case 0x5e: mov_from_mem(opcode,c); return 7; 
-		case 0x77: mov_from_mem(opcode,c); return 7; 		
+ 		
 		case 0x46: mov_from_mem(opcode,c); return 7; 
 		case 0x4e: mov_from_mem(opcode,c); return 7;
+
+		case 0x77: mov_to_mem(opcode,c); return 7;
 
 		// MVI commands
 		case 0x3e: mvi_reg(opcode, c); return 7;
@@ -891,6 +902,7 @@ int execute(chip* c)
 		case 0x00: c->pc+=1; return 4;
 		case 0x37: c->cy = 1; c->pc+=1; return 4;
 		default: 	
+			printf("Unimplemented: %x\n",opcode);
 			is_running = 0;
 			return 0;
 	}
@@ -934,6 +946,7 @@ void mini_bdos(chip* c)
 				printf("%c",c->memory[c->pc]);	
 				c->pc+=1;
 			}
+			fflush(stdout);
 			// RET to addr after CALL 5
 			uint8_t low = c->memory[c->sp]; 			
 			c->sp++;
