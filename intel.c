@@ -164,64 +164,35 @@ void handle_ac_add(uint8_t value1, uint8_t value2,chip* c)
 	c->ac = ((value1 + value2) > 0x0f)? 1: 0;
 }
 
-void ora(uint8_t opcode, chip* c){
-	switch(opcode&7){
-		case 0: c->a |= c->b; break;
-		case 1: c->a |= c->c; break;
-		case 2: c->a |= c->d; break;
-		case 3: c->a |= c->e; break;
-		case 4: c->a |= c->h; break;
-		case 5: c->a |= c->l; break;
-		case 6: c->a |= c->memory[(c->h << 8) | c->l]; break;
-	}
+void ora(uint8_t val, chip* c){
+	c->a |= val;
 	c->cy = c->ac = 0;
 	handle_zsp(c->a,c);
 }
 
-void xra(uint8_t opcode, chip* c)
+void xra(uint8_t val, chip* c)
 {
-	switch(opcode&7){
-		case 0: c->a ^= c->b; break;
-		case 1: c->a ^= c->c; break;
-		case 2: c->a ^= c->d; break;
-		case 3: c->a ^= c->e; break;
-		case 4: c->a ^= c->h; break;
-		case 5: c->a ^= c->l; break;
-		case 6: c->a ^= c->memory[(c->h << 8) | c->l]; break;
-	}
+	c->a ^= val;
 	c->cy = c->ac = 0;
 	handle_zsp(c->a,c);
 }
 
 
-int ana(uint8_t opcode, chip* c)
+void ana(uint8_t opcode, chip* c)
 {
-	uint8_t index = opcode & 7;	
-	if(index != 6)
-	{
-		c->ac = (((c->reg[7] | c->reg[index]) & 0x08) != 0);		
-		c->reg[7] &= c->reg[index];
-		handle_pf(c->reg[7],c);		
-    		handle_sf(c->reg[7],c);		
-		handle_zf(c->reg[7],c);		
-  
-		c->cy = 0;
-		c->pc+=1;
-		return 4;
+	switch(opcode&7){
+		case 0: c->a &= c->b; c->ac = ((c->a|c->b)&8) != 0; break;
+		case 1: c->a &= c->c; c->ac = ((c->a|c->c)&8) != 0; break;
+		case 2: c->a &= c->d; c->ac = ((c->a|c->d)&8) != 0; break;
+		case 3: c->a &= c->e; c->ac = ((c->a|c->e)&8) != 0; break;
+		case 4: c->a &= c->h; c->ac = ((c->a|c->h)&8) != 0; break;
+		case 5: c->a &= c->l; c->ac = ((c->a|c->l)&8) != 0; break;
+		case 6: c->a &= c->memory[(c->h << 8) | c->l]; 
+			c->ac = ((c->a | c->memory[(c->h << 8) | c->l]) & 8) != 0;
+			break;
 	}
-	else
-	{
-		uint16_t addr = (c->reg[4] << 8) | c->reg[5];	
-		c->ac = (((c->reg[7] | c->reg[index]) & 0x08) != 0);
-		c->reg[7] &= c->memory[addr];
-		handle_pf(c->reg[7],c);		
-    		handle_sf(c->reg[7],c);		
-		handle_zf(c->reg[7],c);		
-  
-		c->cy = 0;
-		c->pc+=1;
-		return 7;
-	}
+	c->cy = 0;
+	handle_zsp(c->a,c);
 }
 
 int increment(uint8_t opcode, chip* c)
@@ -370,6 +341,13 @@ void lxi(uint8_t opcode, chip* c)
 	}
 }
 
+void cmp(uint8_t val, chip* c){
+	uint8_t result = c->a - val;
+	c->ac = (c->a & 0x0f) < (val & 0x0f);
+	c->cy = (c->a < val);
+	handle_zsp(result,c);
+}
+
 void dad(uint8_t opcode, chip* c)
 {
 	uint8_t rp = (opcode >> 4) & 3;
@@ -449,77 +427,48 @@ int execute(chip* c)
 			   break;
 
 		// ORA commands
-		case 0xb6: ora(opcode,c); c->pc++; break;
-		case 0xb1: ora(opcode,c); c->pc++; break;
+		case 0xb6: ora(c->memory[(c->h<<8)|c->l],c); c->pc++; break;
+		case 0xb1: ora(c->c,c); c->pc++; break;
 
 		// XRA commands
-		case 0xae: xra(opcode,c); c->pc++; break;
-		case 0xa8: xra(opcode,c); c->pc++; break;
-		case 0xa9: xra(opcode,c); c->pc++; break;
+		case 0xae: xra(c->memory[(c->h<<8)|c->l],c); c->pc++; break;
+		case 0xa8: xra(c->b,c); c->pc++; break;
+		case 0xa9: xra(c->c,c); c->pc++; break;
 	
 		// ANA
-		case 0xa1: return ana(opcode,c);
-		case 0xa0: return ana(opcode,c);
+		case 0xa1: ana(opcode,c); c->pc++; break;
+		case 0xa0: ana(opcode,c); c->pc++; break;
 
 		// LOAD commands (LXI)
-		case 0x01: lxi(opcode,c); c->pc+=3; return 10;
-		case 0x11: lxi(opcode,c); c->pc+=3; return 10;
-		case 0x21: lxi(opcode,c); c->pc+=3; return 10;
-		case 0x31: lxi(opcode,c); c->pc+=3; return 10;
+		case 0x01: lxi(opcode,c); c->pc+=3; break;
+		case 0x11: lxi(opcode,c); c->pc+=3; break;
+		case 0x21: lxi(opcode,c); c->pc+=3; break;
+		case 0x31: lxi(opcode,c); c->pc+=3; break;
 
 		// Loading to memory from accumulator
-		case 0x3a: c->reg[7] = c->memory[make_addr(c)]; c->pc+=3; return 13;
-		case 0x32: c->memory[make_addr(c)] = c->reg[7]; c->pc+=3; return 13;
-		case 0x12: 
-			   c->memory[(c->reg[2] << 8) | c->reg[3]] = c->reg[7];
-			   c->pc+=1;
-			   return 7;
-		case 0x1a:
-			   c->reg[7] = c->memory[(c->reg[2] << 8) | c->reg[3]];
-			   c->pc+=1;
-			   return 7;
-		// LHLD
-		case 0x2a:
-			c->reg[5] = c->memory[make_addr(c)];		// reg L
-			c->reg[4] = c->memory[make_addr(c) + 1];	// reg H 
-			c->pc+=3;
-			return 16;
+		case 0x3a: c->a = c->memory[make_addr(c)]; c->pc+=3; break; 		// lda addr
+		case 0x32: c->memory[make_addr(c)] = c->a; c->pc+=3; break;		// sta addr
+										
+		case 0x12: c->memory[(c->d<<8) | c->e] = c->a; c->pc++; break;		// stax
 
-		// SHLD
-		case 0x22: 
-			c->memory[make_addr(c)] = c->reg[5];
-			c->memory[make_addr(c)+1] = c->reg[4];
-			c->pc+=3;
-			return 16;
+		case 0x1a: c->a = c->memory[(c->d<<8) | c->e]; c->pc++; break;		// ldax
 
-		// SPHL
-		case 0xf9:	
-			c->sp = (c->reg[4] << 8) | c->reg[5];
-			c->pc+=1;
-			return 5;
+		case 0x2a:								// lhld 
+			c->l = c->memory[make_addr(c)];		
+			c->h = c->memory[make_addr(c)+1];	 
+			c->pc+=3; break;
 
-		case 0xfe:
-			{
-			uint8_t result = c->reg[7] - c->memory[c->pc + 1];
-			uint8_t value1 = c->reg[7] & 0x0f;
-			uint8_t value2 = c->memory[c->pc+1] & 0x0f;
-			handle_zf(result,c);	
-			handle_sf(result,c);
-			handle_pf(result,c);
-			handle_cy(c);
-			handle_ac_sub(value1,value2,c);
+		case 0x22: 								// shld
+			c->memory[make_addr(c)] = c->l;
+			c->memory[make_addr(c)+1] = c->h;
+			c->pc+=3; break;
 
-			c->pc+=2;
-			return 7;
-			}
-		case 0xca:
-			(c->zf) ? (c->pc = make_addr(c)) : (c->pc += 3);
-			return 10;
-		case 0xc2:
-			!(c->zf) ? (c->pc = make_addr(c)) : (c->pc += 3);
-			return 10;
-		case 0xc3: c->pc = make_addr(c); return 10;	
+		case 0xf9: c->sp = (c->h<<8)|c->l; c->pc++; break;			// sphl
 
+		// cmp commands
+		case 0xfe: cmp(c->memory[c->pc+1], c); c->pc+=2; break;			// cpi
+
+		
 		// CALL Addr
 		case 0xcd:			
 			c->sp--;
@@ -723,6 +672,14 @@ int execute(chip* c)
 			}
 			else { c->pc+=1; return 5; }
 		// JMP if/not carry
+		case 0xca:
+			(c->zf) ? (c->pc = make_addr(c)) : (c->pc += 3);
+			return 10;
+		case 0xc2:
+			!(c->zf) ? (c->pc = make_addr(c)) : (c->pc += 3);
+			return 10;
+		case 0xc3: c->pc = make_addr(c); return 10;	
+
 		case 0xda:
 			if(c->cy) { c->pc = make_addr(c); }
 		       	else { c->pc+=1; }	
