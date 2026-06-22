@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#define DEBUG 1
+#define DEBUG 0
 
 bool is_running = 0;
 
@@ -10,10 +10,10 @@ typedef struct {
 	uint16_t pc;
 
 	// work registers
-	uint8_t reg[8];	
+	uint8_t a,b,c,d,e,h,l; 
 
 	//flags
-	uint8_t sf, zf, pf, cy, ac;
+	bool sf, zf, pf, cy, ac;
 
 	uint16_t sp;
 	
@@ -23,7 +23,13 @@ typedef struct {
 void chip_init(chip* c)
 {
 	memset(c->memory,0,0xffff);
-	memset(c->reg,0,8);
+	c->a = 0;
+	c->b = 0;
+	c->c = 0;
+	c->d = 0;
+	c->e = 0
+	c->h = 0;
+	c->l = 0;
 	c->pc = 0;
 	c->sf = 0;
 	c->zf = 0;
@@ -118,14 +124,10 @@ uint8_t format_flags(chip* c)
 	return low;
 }
 
+// Flags handling
 void handle_zf(uint8_t result,chip* c)
 {
 	c->zf = (result == 0); 
-}
-
-void handle_cy(chip* c)
-{
-	c->cy = (c->reg[7] < c->memory[c->pc+1]);
 }
 
 void handle_sf(uint8_t result,chip* c)
@@ -135,11 +137,22 @@ void handle_sf(uint8_t result,chip* c)
 
 void handle_pf(uint8_t result, chip* c)
 {
-	result ^= result >> 4;
-	result ^= result >> 2;
-	result ^= result >> 1;
-	c->pf = !(result & 1);		
+	uint8_t ones = 0;
+	for(uint8_t i=0; i < 8; i++){
+		if((result & (1 << i)) != 0){
+			ones++;	
+		}
+	}
+	c->pf = (ones % 2 == 0);
 }
+
+void handle_zsp(uint8_t result, chip* c){
+	handle_zf(result, c);	
+	handle_sf(result, c);
+	handle_pf(result, c);
+}
+
+// Instruction families
 
 void handle_ac_sub(uint8_t value1, uint8_t value2, chip* c)
 {
@@ -151,87 +164,33 @@ void handle_ac_add(uint8_t value1, uint8_t value2,chip* c)
 	c->ac = ((value1 + value2) > 0x0f)? 1: 0;
 }
 
-void mvi_reg(uint16_t opcode, chip* c)
-{
-	c->reg[(opcode>>3)&7] = c->memory[c->pc+1];	
-	c->pc+=2;
-}
-
-void mov_to_reg(uint8_t opcode,chip* c)
-{
-	uint8_t dest = (opcode >> 3) & 7;
-	uint8_t src = opcode & 7;
-
-	if(dest != src) { c->reg[dest] = c->reg[src]; }
-	c->pc+=1;
-}
-
-void mov_from_mem(uint8_t opcode, chip* c)
-{
-	uint8_t index = (opcode >> 3) & 7;
-	uint16_t data = (c->reg[4] << 8) | c->reg[5];
-	c->reg[index] = c->memory[data];
-	c->pc+=1;
-}
-
-void mov_to_mem(uint8_t opcode, chip* c)
-{
-	uint8_t index = (opcode & 7);
-	uint16_t data = (c->reg[4] << 8) | c->reg[5];
-	c->memory[data] = c->reg[index];
-	c->pc+=1;
-}
-
-int ora(uint8_t opcode, chip* c)
-{
-	uint8_t src = opcode & 7;
-	if(src != 6)
-	{
-		c->reg[7] |= c->reg[src];
-		handle_pf(c->reg[7],c);
-		handle_sf(c->reg[7],c);
-		handle_zf(c->reg[7],c);
-		c->cy = c->ac = 0;	
-		c->pc+=1;
-		return 4;
+void ora(uint8_t opcode, chip* c){
+	switch(opcode&7){
+		case 0: c->a |= c->b; break;
+		case 1: c->a |= c->c; break;
+		case 2: c->a |= c->d; break;
+		case 3: c->a |= c->e; break;
+		case 4: c->a |= c->h; break;
+		case 5: c->a |= c->l; break;
+		case 6: c->a |= c->memory[(c->h << 8) | c->l]; break;
 	}
-	else 
-	{
-		uint16_t addr = (c->reg[4] << 8) | c->reg[5];
-		c->reg[7] |= c->memory[addr];	
-		handle_pf(c->reg[7],c);
-		handle_sf(c->reg[7],c);
-		handle_zf(c->reg[7],c);
-		c->cy = c->ac = 0;
-		c->pc+=1;
-		return 7;
-	}
+	c->cy = c->ac = 0;
+	handle_zsp(c->a,c);
 }
 
-int xra(uint8_t opcode, chip* c)
+void xra(uint8_t opcode, chip* c)
 {
-	uint8_t src = opcode & 7;
-	if(src != 6)
-	{
-		c->reg[7] ^= c->reg[src];
-		handle_pf(c->reg[7],c);
-		handle_sf(c->reg[7],c);
-		handle_zf(c->reg[7],c);
-		c->cy = c->ac = 0;	
-		c->pc+=1;
-		return 4;
+	switch(opcode&7){
+		case 0: c->a ^= c->b; break;
+		case 1: c->a ^= c->c; break;
+		case 2: c->a ^= c->d; break;
+		case 3: c->a ^= c->e; break;
+		case 4: c->a ^= c->h; break;
+		case 5: c->a ^= c->l; break;
+		case 6: c->a ^= c->memory[(c->h << 8) | c->l]; break;
 	}
-	else 
-	{
-		uint16_t addr = (c->reg[4] << 8) | c->reg[5];
-		c->reg[7] ^= c->memory[addr];	
-		handle_pf(c->reg[7],c);
-		handle_sf(c->reg[7],c);
-		handle_zf(c->reg[7],c);
-		c->cy = c->ac = 0;
-		c->pc+=1;
-		return 7;
-	}
+	c->cy = c->ac = 0;
+	handle_zsp(c->a,c);
 }
 
 
@@ -457,48 +416,46 @@ int execute(chip* c)
 	switch(opcode)
 	{
 		// MOV commands
-		case 0x7c: mov_to_reg(opcode, c); return 5;
-		case 0x7d: mov_to_reg(opcode, c); return 5;
-		case 0x78: mov_to_reg(opcode, c); return 5;
-		case 0x79: mov_to_reg(opcode, c); return 5;
-		case 0x6f: mov_to_reg(opcode, c); return 5;
-		case 0x5f: mov_to_reg(opcode, c); return 5;
-		case 0x54: mov_to_reg(opcode, c); return 5;
-		case 0x5d: mov_to_reg(opcode, c); return 5;
-		case 0x7b: mov_to_reg(opcode, c); return 5;
-		case 0x4f: mov_to_reg(opcode, c); return 5;
-		case 0x7a: mov_to_reg(opcode, c); return 5;
-		case 0x47: mov_to_reg(opcode, c); return 5;
-		case 0x69: mov_to_reg(opcode, c); return 5;
+		case 0x7c: c->a = c->h; c->pc++; break;
+		case 0x7d: c->a = c->l; c->pc++; break; 
+		case 0x78: c->a = c->b; c->pc++; break;
+		case 0x79: c->a = c->c; c->pc++; break;
+		case 0x6f: c->l = c->a; c->pc++; break;
+		case 0x5f: c->e = c->a; c->pc++; break;
+		case 0x54: c->d = c->h; c->pc++; break;
+		case 0x5d: c->e = c->l; c->pc++; break;
+		case 0x7b: c->a = c->e; c->pc++; break;
+		case 0x4f: c->c = c->a; c->pc++; break;
+		case 0x7a: c->a = c->d; c->pc++; break;
+		case 0x47: c->b = c->a; c->pc++; break;
+		case 0x69: c->l = c->c; c->pc++; break;
 
-		case 0x7e: mov_from_mem(opcode,c); return 7; 
-		case 0x66: mov_from_mem(opcode,c); return 7; 
-		case 0x5e: mov_from_mem(opcode,c); return 7; 
- 		
-		case 0x46: mov_from_mem(opcode,c); return 7; 
-		case 0x4e: mov_from_mem(opcode,c); return 7;
+		case 0x7e: c->a = c->memory[(c->h << 8) | c->l]; c->pc++; break; 
+		case 0x66: c->h = c->memory[(c->h << 8) | c->l]; c->pc++; break; 
+		case 0x5e: c->e = c->memory[(c->h << 8) | c->l]; c->pc++; break;
+ 		case 0x46: c->b = c->memory[(c->h << 8) | c->l]; c->pc++; break;
+ 		case 0x4e: c->c = c->memory[(c->h << 8) | c->l]; c->pc++; break;
 
-		case 0x77: mov_to_mem(opcode,c); return 7;
+		case 0x77: c->memory[(c->h << 8) | c->l] = c->a; c->pc++; break;
 
 		// MVI commands
-		case 0x3e: mvi_reg(opcode, c); return 7;
-		case 0x06: mvi_reg(opcode, c); return 7;
-		case 0x26: mvi_reg(opcode, c); return 7;
-		case 0x0e: mvi_reg(opcode, c); return 7;
-		case 0x16: mvi_reg(opcode, c); return 7;
-		case 0x36: 
-			   c->memory[(c->reg[4] << 8) | c->reg[5]] = c->memory[c->pc+1];
+		case 0x3e: c->a = c->memory[c->pc+1]; c->pc+=2; break;
+		case 0x06: c->b = c->memory[c->pc+1]; c->pc+=2; break;
+		case 0x26: c->h = c->memory[c->pc+1]; c->pc+=2; break;
+		case 0x0e: c->c = c->memory[c->pc+1]; c->pc+=2; break;
+		case 0x16: c->d = c->memory[c->pc+1]; c->pc+=2; break;
+		case 0x36: c->memory[(c->h << 8) | c->l] = c->memory[c->pc+1]; 
 			   c->pc+=2;
-			   return 10;
+			   break;
 
 		// ORA commands
-		case 0xb6: return ora(opcode,c);
-		case 0xb1: return ora(opcode,c);
+		case 0xb6: ora(opcode,c); c->pc++; break;
+		case 0xb1: ora(opcode,c); c->pc++; break;
 
 		// XRA commands
-		case 0xae: return xra(opcode,c);
-		case 0xa8: return xra(opcode,c); 
-		case 0xa9: return xra(opcode,c);
+		case 0xae: xra(opcode,c); c->pc++; break;
+		case 0xa8: xra(opcode,c); c->pc++; break;
+		case 0xa9: xra(opcode,c); c->pc++; break;
 	
 		// ANA
 		case 0xa1: return ana(opcode,c);
@@ -919,7 +876,7 @@ int main()
 
 	while(is_running)
 	{
-		states+=execute(&c);	
+		execute(&c);	
 	}
 	fprintf(stderr,"states: %d\n",states);
 	return 0;
