@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#define DEBUG 0
+#define DEBUG 1
 
 bool is_running = 0;
 
@@ -41,7 +41,7 @@ void chip_init(chip* c)
 	c->sp = 0xffff;	
 	c->INTE = 0;
 
-	FILE* pfile = fopen("8080PRE.COM","rb");
+	FILE* pfile = fopen("8080EXER.COM","rb");
 	if(pfile == NULL)
 	{
 		perror("Error opening file");	
@@ -128,6 +128,13 @@ void ora(uint8_t val, chip* c){
 	c->a |= val;
 	c->cy = c->ac = 0;
 	handle_zsp(c->a,c);
+}
+
+void add(uint8_t val, chip* c){
+	c->ac = (((c->a&0x0f) + (val&0x0f)) > 0x0f);
+	c->a += val;
+	handle_zsp(c->a,c);	
+	c->cy = (c->a < val);
 }
 
 void xra(uint8_t val, chip* c)
@@ -231,20 +238,13 @@ void mini_bdos(chip* c);
 int execute(chip* c)
 {	
 	// condition to exit loop
-	if(c->pc > 0xffff)
-	{
-		is_running = 0;	
-	}
+	if(c->pc > 0xffff) { is_running = 0; }
 	
 	// MINI BDOS STUB
-	if(c->pc == 5)
-	{
-		mini_bdos(c);	
-	}
+	if(c->pc == 5) { mini_bdos(c); }
 
 	uint8_t opcode = c->memory[c->pc];
 	
-
 	// basic disassembler 
 	if(DEBUG) { debug(opcode,c); }
 
@@ -284,8 +284,12 @@ int execute(chip* c)
 			   break;
 
 		// ORA commands
-		case 0xb6: ora(c->memory[get_hl(c)],c); c->pc++; break;
-		case 0xb1: ora(c->c,c); c->pc++; break;
+		case 0xb6: ora(c->memory[get_hl(c)],c); c->pc++; break;			// ora m	
+		case 0xb7: ora(c->a,c); c->pc++; break;					// ora a
+		case 0xb1: ora(c->c,c); c->pc++; break;					// ora c
+											//
+		//ADD
+		case 0xc6: add(c->memory[c->pc+1], c); c->pc+=2; break;			// adi
 
 		// XRA commands
 		case 0xae: xra(c->memory[get_hl(c)],c); c->pc++; break;
@@ -320,6 +324,7 @@ int execute(chip* c)
 
 		// cmp commands
 		case 0xfe: cmp(c->memory[c->pc+1], c); c->pc+=2; break;			// cpi
+		case 0xbe: cmp(c->memory[get_hl(c)],c); c->pc++; break;			// cmp m
 
 		// RET Addr
 		case 0xc9: c->pc = pop_stack(c); break;
@@ -342,7 +347,7 @@ int execute(chip* c)
 		case 0xe2: c->pc = (c->pf == 0) ? make_addr(c) : c->pc+3; break;	// jpo
 		case 0xfa: c->pc = (c->sf == 1) ? make_addr(c) : c->pc+3; break;	// jm
 		case 0xf2: c->pc = (c->sf == 0) ? make_addr(c) : c->pc+3; break;	// jp
-		case 0xe9: c->pc = (c->h<<8) | c->l; break;				// pchl
+		case 0xe9: c->pc = get_hl(c); break;					// pchl
 
 			
 		// CALL Addr
@@ -495,7 +500,7 @@ int execute(chip* c)
 		case 0x37: c->cy = 1; c->pc++; break;				// stc
 										//
 		default: 	
-			printf("Unimplemented: %x\n",opcode);
+			printf("\nUnimplemented: %x\n",opcode);
 			is_running = 0;
 			return 0;
 	}
@@ -514,7 +519,6 @@ int main()
 	{
 		execute(&c);	
 	}
-	fprintf(stderr,"states: %d\n",states);
 	return 0;
 }
 
@@ -529,7 +533,7 @@ void debug(uint8_t opcode,chip* c)
 }
 
 void mini_bdos(chip* c)
-{
+{ 
 	switch(c->c)
 	{
 		case 9:
@@ -543,6 +547,9 @@ void mini_bdos(chip* c)
 
 			// RET to addr after CALL 5
 			c->pc = pop_stack(c);
+			break;
+		case 2:
+			printf("%c",c->e);
 			break;
 		default:
 			printf("unimplemented bdos: %d\n",c->c);
