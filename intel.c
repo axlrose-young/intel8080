@@ -29,7 +29,7 @@ void chip_init(chip* c)
 	c->b = 0;
 	c->c = 0;
 	c->d = 0;
-	c->e = 0
+	c->e = 0;
 	c->h = 0;
 	c->l = 0;
 	c->pc = 0;
@@ -41,7 +41,7 @@ void chip_init(chip* c)
 	c->sp = 0xffff;	
 	c->INTE = 0;
 
-	FILE* pfile = fopen("8080EXM.COM","rb");
+	FILE* pfile = fopen("8080PRE.COM","rb");
 	if(pfile == NULL)
 	{
 		perror("Error opening file");	
@@ -193,16 +193,16 @@ void lxi(uint8_t opcode, chip* c)
 	switch(rp)
 	{
 		case 0:	
-			c->reg[0] = c->memory[c->pc+2];
-			c->reg[1] = c->memory[c->pc+1];
+			c->b = c->memory[c->pc+2];
+			c->c = c->memory[c->pc+1];
 			break;
 		case 1:
-			c->reg[2] = c->memory[c->pc+2];
-			c->reg[3] = c->memory[c->pc+1];
+			c->d = c->memory[c->pc+2];
+			c->e = c->memory[c->pc+1];
 			break;
 		case 2:
-			c->reg[4] = c->memory[c->pc+2];
-			c->reg[5] = c->memory[c->pc+1];
+			c->h = c->memory[c->pc+2];
+			c->l = c->memory[c->pc+1];
 			break;
 		case 3:
 			c->sp = make_addr(c);
@@ -326,7 +326,9 @@ int execute(chip* c)
 		case 0xd8: c->pc = (c->cy == 1) ? pop_stack(c) : c->pc+1; break;
 		case 0xd0: c->pc = (c->cy == 0) ? pop_stack(c) : c->pc+1; break;
 		case 0xe8: c->pc = (c->pf == 1) ? pop_stack(c) : c->pc+1; break;
+		case 0xe0: c->pc = (c->pf == 0) ? pop_stack(c) : c->pc+1; break;
 		case 0xc0: c->pc = (c->zf == 0) ? pop_stack(c) : c->pc+1; break;
+		case 0xc8: c->pc = (c->zf == 1) ? pop_stack(c) : c->pc+1; break;
 		case 0xf8: c->pc = (c->sf == 1) ? pop_stack(c) : c->pc+1; break;
 		case 0xf0: c->pc = (c->sf == 0) ? pop_stack(c) : c->pc+1; break;
 		
@@ -416,7 +418,7 @@ int execute(chip* c)
 		// POP commands
 		case 0xc1: 							// pop b,c
 			  uint16_t bc = pop_stack(c); 
-			  c->b = bc >> 8; c->c = (be & 0xff);
+			  c->b = bc >> 8; c->c = (bc & 0xff);
 			  c->pc++; break; 
 		case 0xd1:							// pop d,e
 			  uint16_t de = pop_stack(c); 
@@ -462,12 +464,12 @@ int execute(chip* c)
 		case 0x39: dad(c->sp,c); c->pc++; break;			// dad sp
 
 		case 0xeb:							// xchg h,l with d,e 
-			   uint16_t hl = get_hl(c);
-			   uint16_t de = get_de(c);
+			   uint16_t hl_pair = get_hl(c);
+			   uint16_t de_pair = get_de(c);
 			   uint16_t tmp = hl;
-			   hl = de; de = tmp;
-			   c->h = hl >> 8; c->l = hl & 0xff;
-			   c->d = de >> 8; c->e = de & 0xff;
+			   hl_pair = de_pair; de_pair = tmp;
+			   c->h = hl_pair >> 8; c->l = hl_pair & 0xff;
+			   c->d = de_pair >> 8; c->e = de_pair & 0xff;
 			   c->pc++; break;
 
 		// rotate
