@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#define DEBUG 1
+#define DEBUG 0
 
 bool is_running = 0;
 
@@ -38,10 +38,10 @@ void chip_init(chip* c)
 	c->pf = 0;
 	c->cy = 0;
 	c->ac = 0;
-	c->sp = 0xffff;	
+	c->sp = 0;	
 	c->INTE = 0;
 
-	FILE* pfile = fopen("8080EXER.COM","rb");
+	FILE* pfile = fopen("8080EXM.COM","rb");
 	if(pfile == NULL)
 	{
 		perror("Error opening file");	
@@ -49,6 +49,8 @@ void chip_init(chip* c)
 	// loading at 0x100
 	fread(&c->memory[0x100],0xffff,1,pfile);	
 
+	c->memory[6] = 0x01;
+	c->memory[7] = 0xc9;
 	c->pc = 0x100;
 	is_running = 1;
 }
@@ -244,9 +246,10 @@ int execute(chip* c)
 	if(c->pc == 5) { mini_bdos(c); }
 
 	uint8_t opcode = c->memory[c->pc];
-	
+
 	// basic disassembler 
 	if(DEBUG) { debug(opcode,c); }
+
 
 	switch(opcode)
 	{
@@ -287,7 +290,7 @@ int execute(chip* c)
 		case 0xb6: ora(c->memory[get_hl(c)],c); c->pc++; break;			// ora m	
 		case 0xb7: ora(c->a,c); c->pc++; break;					// ora a
 		case 0xb1: ora(c->c,c); c->pc++; break;					// ora c
-											//
+											
 		//ADD
 		case 0xc6: add(c->memory[c->pc+1], c); c->pc+=2; break;			// adi
 
@@ -333,7 +336,7 @@ int execute(chip* c)
 		case 0xe8: c->pc = (c->pf == 1) ? pop_stack(c) : c->pc+1; break;
 		case 0xe0: c->pc = (c->pf == 0) ? pop_stack(c) : c->pc+1; break;
 		case 0xc0: c->pc = (c->zf == 0) ? pop_stack(c) : c->pc+1; break;
-		case 0xc8: c->pc = (c->zf == 1) ? pop_stack(c) : c->pc+1; break;
+		case 0xc8: c->pc = (c->zf == 1) ? pop_stack(c) : c->pc+1; break;	// rz
 		case 0xf8: c->pc = (c->sf == 1) ? pop_stack(c) : c->pc+1; break;
 		case 0xf0: c->pc = (c->sf == 0) ? pop_stack(c) : c->pc+1; break;
 		
@@ -447,7 +450,7 @@ int execute(chip* c)
 	
 		// DCR commands
 		case 0x05: c->b = dcr(c->b,c); c->pc++; break;			// dcr b
-		case 0x0d: c->d = dcr(c->d,c); c->pc++; break;			// dcr c
+		case 0x0d: c->c = dcr(c->c,c); c->pc++; break;			// dcr c
 					
 		// DCX commands
 		case 0x2b: dcr_pair(&c->h,&c->l,c); c->pc++; break;		// dcx h
@@ -471,7 +474,7 @@ int execute(chip* c)
 		case 0xeb:							// xchg h,l with d,e 
 			   uint16_t hl_pair = get_hl(c);
 			   uint16_t de_pair = get_de(c);
-			   uint16_t tmp = hl;
+			   uint16_t tmp = hl_pair;
 			   hl_pair = de_pair; de_pair = tmp;
 			   c->h = hl_pair >> 8; c->l = hl_pair & 0xff;
 			   c->d = de_pair >> 8; c->e = de_pair & 0xff;
@@ -524,12 +527,9 @@ int main()
 
 void debug(uint8_t opcode,chip* c)
 {
-	fprintf(stderr,"Opcode: %x, PC: %x\n",opcode, c->pc);	
-	fprintf(stderr,"Registers  B: %x C: %x D: %x E: %x H: %x L: %x A: %x\n",
-			c->b,c->c,c->d,c->e,
-		       c->h, c->l,c->a);	
-	fprintf(stderr,"Flags  Z: %d S: %d P: %d CY: %d AC: %d Stack Ptr: %x\n",c->zf,c->sf,c->pf,c->cy,c->ac,c->sp);
-	fprintf(stderr,"\t---\n");
+	fprintf(stderr,"PC: %04X, AF: %04X, BC: %04X, DE: %04X, HL: %04X, SP: %04X",
+			c->pc, c->a << 8 | format_flags(c), get_bc(c), get_de(c), get_hl(c), c->sp);
+	fprintf(stderr,"\n");
 }
 
 void mini_bdos(chip* c)
