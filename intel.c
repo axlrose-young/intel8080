@@ -56,6 +56,13 @@ void chip_init(chip* c)
 }
 
 // Helper functions
+
+/*
+void mem_write(uint8_t val, uint16_t addr, chip* c){
+	fprintf(stderr,"PC: %04X, Written val: %02X, to addr: %04X\n",c->pc,val,addr);
+}
+*/
+
 uint16_t make_addr(chip* c)
 {
 	return c->memory[c->pc + 2] << 8 | c->memory[c->pc + 1];
@@ -282,7 +289,7 @@ int execute(chip* c)
 		case 0x26: c->h = c->memory[c->pc+1]; c->pc+=2; break;
 		case 0x0e: c->c = c->memory[c->pc+1]; c->pc+=2; break;
 		case 0x16: c->d = c->memory[c->pc+1]; c->pc+=2; break;
-		case 0x36: c->memory[get_hl(c)] = c->memory[c->pc+1]; 
+		case 0x36: c->memory[get_hl(c)] = c->memory[c->pc+1]; 			 
 			   c->pc+=2;
 			   break;
 
@@ -461,7 +468,9 @@ int execute(chip* c)
 		case 0x14: c->d = inr(c->d,c); c->pc++; break;			// inr d
 		case 0x34: 							// inr m
 			   uint8_t data = c->memory[get_hl(c)];
-			   data = inr(data,c); c->pc++; break;
+			   data = inr(data,c); 
+			   c->memory[get_hl(c)] = data; 
+			   c->pc++; break;
 		// INX commands
 		case 0x23: inr_pair(&c->h,&c->l,c); c->pc++; break;		// inx h,l 
 		case 0x13: inr_pair(&c->d,&c->e,c); c->pc++; break;		// inx d,e
