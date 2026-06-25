@@ -302,9 +302,10 @@ int execute(chip* c)
 		case 0xc6: add(c->memory[c->pc+1], c); c->pc+=2; break;			// adi
 
 		// XRA commands
-		case 0xae: xra(c->memory[get_hl(c)],c); c->pc++; break;
-		case 0xa8: xra(c->b,c); c->pc++; break;
-		case 0xa9: xra(c->c,c); c->pc++; break;
+		case 0xae: xra(c->memory[get_hl(c)],c); c->pc++; break;			// xra m
+		case 0xa8: xra(c->b,c); c->pc++; break;					// xra b
+		case 0xa9: xra(c->c,c); c->pc++; break;					// xra c
+		case 0xaf: xra(c->a,c); c->pc++; break;					// xra a 
 		
 		// LOAD commands (LXI)
 		case 0x01: lxi(opcode,c); c->pc+=3; break;
@@ -514,7 +515,6 @@ int execute(chip* c)
 		default: 	
 			printf("\nUnimplemented: %x\n",opcode);
 			is_running = 0;
-			return 0;
 	}
 }
 
@@ -522,13 +522,11 @@ int main()
 {
 	// initialize the chip
 	chip c;	
-	unsigned int states = 0;
 	
 	// load the chip with the rom
 	chip_init(&c);
 
-	while(is_running)
-	{
+	while(is_running){
 		execute(&c);	
 	}
 	return 0;
@@ -559,6 +557,8 @@ void mini_bdos(chip* c)
 			break;
 		case 2:
 			printf("%c",c->e);
+			fflush(stdout);
+			c->pc = pop_stack(c);
 			break;
 		default:
 			printf("unimplemented bdos: %d\n",c->c);
