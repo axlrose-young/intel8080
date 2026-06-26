@@ -1,5 +1,5 @@
 // work on push stack implement get register pair commands
-
+// handle_ZSP function takes c as argument. Change it
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -140,10 +140,35 @@ void ora(uint8_t val, chip* c){
 }
 
 void add(uint8_t val, chip* c){
+	uint16_t result = c->a + val;
+	c->cy = (result > 0xff);
 	c->ac = (((c->a&0x0f) + (val&0x0f)) > 0x0f);
-	c->a += val;
-	handle_zsp(c->a,c);	
+	c->a = result & 0xff;
+	handle_zsp(result,c);
+}
+
+void sub(uint8_t val, chip* c){
+	c->ac = ((c->a&0x0f) >= (val&0x0f));
 	c->cy = (c->a < val);
+	c->a -= val;
+	handle_zsp(c->a,c);
+}
+
+void sub_bor(uint8_t val, chip* c){
+	uint8_t cy_in = c->cy;			// cache the carry in
+	c->ac = ((c->a&0x0f) >= (val&0x0f) + cy_in);	
+        c->cy = (c->a < val + cy_in);
+
+	c->a = c->a - val - cy_in;
+	handle_zsp(c->a,c);
+        }
+
+void add_carry(uint8_t val, chip* c){		
+        uint16_t result = c->a + val + c->cy;
+	c->ac = (((c->a&0x0f) + (val&0x0f) + c->cy) > 0x0f);
+	c->cy = (result > 0xff);
+	handle_zsp(result,c);
+	c->a = result&0xff;
 }
 
 void xra(uint8_t val, chip* c)
@@ -294,18 +319,27 @@ int execute(chip* c)
 			   break;
 
 		// ORA commands
-		case 0xb6: ora(c->memory[get_hl(c)],c); c->pc++; break;			// ora m	
 		case 0xb7: ora(c->a,c); c->pc++; break;					// ora a
 		case 0xb1: ora(c->c,c); c->pc++; break;					// ora c
+	 	case 0xb6: ora(c->memory[get_hl(c)],c); c->pc++; break;			// ora m
+		case 0xf6: ora(c->memory[c->pc+1],c); c->pc+=2; break;			// ori d8
 											
 		//ADD
 		case 0xc6: add(c->memory[c->pc+1], c); c->pc+=2; break;			// adi
 
+		case 0xce: add_carry(c->memory[c->pc+1],c); c->pc+=2; break;		// aci
+											
+		// SUB
+		case 0xd6: sub(c->memory[c->pc+1],c); c->pc+=2; break;			// sui d8
+											
+		case 0xde: sub_bor(c->memory[c->pc+1],c); c->pc+=2; break;		// sbi d8
+
 		// XRA commands
-		case 0xae: xra(c->memory[get_hl(c)],c); c->pc++; break;			// xra m
 		case 0xa8: xra(c->b,c); c->pc++; break;					// xra b
 		case 0xa9: xra(c->c,c); c->pc++; break;					// xra c
 		case 0xaf: xra(c->a,c); c->pc++; break;					// xra a 
+	  	case 0xae: xra(c->memory[get_hl(c)],c); c->pc++; break;			// xra m
+		case 0xee: xra(c->memory[c->pc+1],c); c->pc+=2; break;			// xri d8
 		
 		// LOAD commands (LXI)
 		case 0x01: lxi(opcode,c); c->pc+=3; break;
