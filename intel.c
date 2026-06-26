@@ -133,18 +133,20 @@ uint16_t get_hl(chip* c){
 }
 
 // Instruction families
-void ora(uint8_t val, chip* c){
-	c->a |= val;
-	c->cy = c->ac = 0;
-	handle_zsp(c->a,c);
-}
-
 void add(uint8_t val, chip* c){
 	uint16_t result = c->a + val;
 	c->cy = (result > 0xff);
 	c->ac = (((c->a&0x0f) + (val&0x0f)) > 0x0f);
 	c->a = result & 0xff;
 	handle_zsp(result,c);
+}
+
+void add_carry(uint8_t val, chip* c){		
+        uint16_t result = c->a + val + c->cy;
+	c->ac = (((c->a&0x0f) + (val&0x0f) + c->cy) > 0x0f);
+	c->cy = (result > 0xff);
+	handle_zsp(result,c);
+	c->a = result&0xff;
 }
 
 void sub(uint8_t val, chip* c){
@@ -157,18 +159,16 @@ void sub(uint8_t val, chip* c){
 void sub_bor(uint8_t val, chip* c){
 	uint8_t cy_in = c->cy;			// cache the carry in
 	c->ac = ((c->a&0x0f) >= (val&0x0f) + cy_in);	
-        c->cy = (c->a < val + cy_in);
+	c->cy = (c->a < val + cy_in);
 
 	c->a = c->a - val - cy_in;
 	handle_zsp(c->a,c);
-        }
+}
 
-void add_carry(uint8_t val, chip* c){		
-        uint16_t result = c->a + val + c->cy;
-	c->ac = (((c->a&0x0f) + (val&0x0f) + c->cy) > 0x0f);
-	c->cy = (result > 0xff);
-	handle_zsp(result,c);
-	c->a = result&0xff;
+void ora(uint8_t val, chip* c){
+	c->a |= val;
+	c->cy = c->ac = 0;
+	handle_zsp(c->a,c);
 }
 
 void xra(uint8_t val, chip* c)
@@ -207,7 +207,7 @@ uint8_t dcr(uint8_t val, chip* c){
 	return val;
 }
 
-void dcr_pair(uint8_t* high, uint8_t* low, chip* c){
+void dcr_pair(uint8_t* high, uint8_t* low){
 	uint16_t val = (*high << 8) | *low;
 	val--;
 	*high = val >> 8;	
@@ -221,7 +221,7 @@ uint8_t inr(uint8_t val, chip* c){
 	return val;
 }
 
-void inr_pair(uint8_t* high, uint8_t* low, chip* c){
+void inr_pair(uint8_t* high, uint8_t* low){
 	uint16_t val = (*high << 8) | *low;
 	val++;
 	*high = val >> 8;	
@@ -266,21 +266,18 @@ void dad(uint16_t val, chip* c){
 	c->l = hl & 0xff;
 }
 
-void debug(uint8_t opcode,chip* c);
+void debug(chip* c);
 void mini_bdos(chip* c);
 
-int execute(chip* c)
-{	
-	// condition to exit loop
-	if(c->pc > 0xffff) { is_running = 0; }
-	
+void execute(chip* c)
+{		
 	// MINI BDOS STUB
 	if(c->pc == 5) { mini_bdos(c); }
 
 	uint8_t opcode = c->memory[c->pc];
 
 	// basic disassembler 
-	if(DEBUG) { debug(opcode,c); }
+	if(DEBUG) { debug(c); }
 
 
 	switch(opcode)
@@ -318,28 +315,86 @@ int execute(chip* c)
 			   c->pc+=2;
 			   break;
 
-		// ORA commands
+		case 0xb0: ora(c->b,c); c->pc++; break;					// ora b
+		case 0xb3: ora(c->e,c); c->pc++; break;					// ora e
+		case 0xb4: ora(c->h,c); c->pc++; break;					// ora h
+		case 0xb5: ora(c->l,c); c->pc++; break;					// ora l
+		case 0xb2: ora(c->d,c); c->pc++; break;					// ora d
 		case 0xb7: ora(c->a,c); c->pc++; break;					// ora a
 		case 0xb1: ora(c->c,c); c->pc++; break;					// ora c
 	 	case 0xb6: ora(c->memory[get_hl(c)],c); c->pc++; break;			// ora m
 		case 0xf6: ora(c->memory[c->pc+1],c); c->pc+=2; break;			// ori d8
 											
-		//ADD
-		case 0xc6: add(c->memory[c->pc+1], c); c->pc+=2; break;			// adi
+		case 0x80: add(c->b,c); c->pc++; break;					// add b
+		case 0x81: add(c->c,c); c->pc++; break;					// add c
+		case 0x82: add(c->d,c); c->pc++; break;					// add d
+		case 0x83: add(c->e,c); c->pc++; break;					// add e
+		case 0x84: add(c->h,c); c->pc++; break;					// add h
+		case 0x85: add(c->l,c); c->pc++; break;					// add l
+		case 0x87: add(c->a,c); c->pc++; break; 				// add a
+		case 0x86: add(c->memory[get_hl(c)],c); c->pc++; break;			// add m 
+		case 0xc6: add(c->memory[c->pc+1], c); c->pc+=2; break;			// adi d8
 
-		case 0xce: add_carry(c->memory[c->pc+1],c); c->pc+=2; break;		// aci
+		case 0x88: add_carry(c->b,c); c->pc++; break;				// adc b
+		case 0x89: add_carry(c->c,c); c->pc++; break;				// adc c		
+		case 0x8a: add_carry(c->d,c); c->pc++; break;				// adc d
+		case 0x8b: add_carry(c->e,c); c->pc++; break;				// adc e
+		case 0x8c: add_carry(c->h,c); c->pc++; break;				// adc h
+		case 0x8d: add_carry(c->l,c); c->pc++; break;				// adc l
+		case 0x8f: add_carry(c->a,c); c->pc++; break;				// adc a
+		case 0x8e: add_carry(c->memory[get_hl(c)],c); c->pc++; break;		// adc m		
+		case 0xce: add_carry(c->memory[c->pc+1],c); c->pc+=2; break;		// aci d8
 											
-		// SUB
+		case 0x90: sub(c->b,c); c->pc++; break; 				// sub b
+		case 0x91: sub(c->c,c); c->pc++; break;					// sub c
+		case 0x92: sub(c->d,c); c->pc++; break;					// sub d
+		case 0x93: sub(c->e,c); c->pc++; break;					// sub e
+		case 0x94: sub(c->h,c); c->pc++; break; 				// sub h
+		case 0x95: sub(c->l,c); c->pc++; break;					// sub l
+		case 0x97: sub(c->a,c); c->pc++; break;					// sub a
+		case 0x96: sub(c->memory[get_hl(c)],c); c->pc++; break;			// sub m
 		case 0xd6: sub(c->memory[c->pc+1],c); c->pc+=2; break;			// sui d8
 											
+		case 0x98: sub_bor(c->b,c); c->pc++; break;				// sbb b
+		case 0x99: sub_bor(c->c,c); c->pc++; break;				// sbb c
+		case 0x9a: sub_bor(c->d,c); c->pc++; break;				// sbb d		
+		case 0x9b: sub_bor(c->e,c); c->pc++; break;				// sbb e
+		case 0x9c: sub_bor(c->h,c); c->pc++; break;				// sbb h
+		case 0x9d: sub_bor(c->l,c); c->pc++; break;				// sbb l
+		case 0x9f: sub_bor(c->a,c); c->pc++; break;				// sbb a
+		case 0x9e: sub_bor(c->memory[get_hl(c)],c); c->pc++; break;		// sbb m
 		case 0xde: sub_bor(c->memory[c->pc+1],c); c->pc+=2; break;		// sbi d8
+											
+		case 0xa1: logical_and(c->c,c); c->pc++; break;				// ana c
+		case 0xa2: logical_and(c->d,c); c->pc++; break;				// ana d
+		case 0xa3: logical_and(c->e,c); c->pc++; break;				// ana e
+		case 0xa4: logical_and(c->h,c); c->pc++; break;				// ana h
+		case 0xa5: logical_and(c->l,c); c->pc++; break;				// ana l
+		case 0xa0: logical_and(c->b,c); c->pc++; break;				// ana b
+		case 0xa7: logical_and(c->a,c); c->pc++; break;				// ana a
+		case 0xa6: logical_and(c->memory[get_hl(c)],c); c->pc++; break;		// ana m
+		case 0xe6: logical_and(c->memory[c->pc+1],c); c->pc+=2; break;  	// ani d8			
 
-		// XRA commands
 		case 0xa8: xra(c->b,c); c->pc++; break;					// xra b
 		case 0xa9: xra(c->c,c); c->pc++; break;					// xra c
+		case 0xaa: xra(c->d,c); c->pc++; break;					// xra d
+		case 0xab: xra(c->e,c); c->pc++; break;					// xra e
+		case 0xac: xra(c->h,c); c->pc++; break;					// xra h
+		case 0xad: xra(c->l,c); c->pc++; break;					// xra l
 		case 0xaf: xra(c->a,c); c->pc++; break;					// xra a 
 	  	case 0xae: xra(c->memory[get_hl(c)],c); c->pc++; break;			// xra m
 		case 0xee: xra(c->memory[c->pc+1],c); c->pc+=2; break;			// xri d8
+
+		case 0xb8: cmp(c->b,c); c->pc++; break;					// cmp b 
+		case 0xb9: cmp(c->c,c); c->pc++; break;					// cmp c
+		case 0xba: cmp(c->d,c); c->pc++; break;					// cmp d
+		case 0xbb: cmp(c->e,c); c->pc++; break;					// cmp e
+		case 0xbc: cmp(c->h,c); c->pc++; break;					// cmp h
+		case 0xbd: cmp(c->l,c); c->pc++; break;					// cmp l	
+		case 0xbf: cmp(c->a,c); c->pc++; break;					// cmp a
+		case 0xbe: cmp(c->memory[get_hl(c)],c); c->pc++; break;			// cmp m
+		case 0xfe: cmp(c->memory[c->pc+1], c); c->pc+=2; break;			// cpi
+		
 		
 		// LOAD commands (LXI)
 		case 0x01: lxi(opcode,c); c->pc+=3; break;
@@ -367,10 +422,7 @@ int execute(chip* c)
 
 		case 0xf9: c->sp = get_hl(c); c->pc++; break;				// sphl
 
-		// cmp commands
-		case 0xfe: cmp(c->memory[c->pc+1], c); c->pc+=2; break;			// cpi
-		case 0xbe: cmp(c->memory[get_hl(c)],c); c->pc++; break;			// cmp m
-
+		
 		// RET Addr
 		case 0xc9: c->pc = pop_stack(c); break;
 		case 0xd8: c->pc = (c->cy == 1) ? pop_stack(c) : c->pc+1; break;
@@ -485,18 +537,14 @@ int execute(chip* c)
 			c->pc++;
 			break;
 
-		// AND operations
-		case 0xe6: logical_and(c->memory[c->pc+1],c); c->pc+=2; break;  // ani
-		case 0xa1: logical_and(c->c,c); c->pc++; break;			// ana c
-		case 0xa0: logical_and(c->b,c); c->pc++; break;			// ana b
-	
+			
 		// DCR commands
 		case 0x05: c->b = dcr(c->b,c); c->pc++; break;			// dcr b
 		case 0x0d: c->c = dcr(c->c,c); c->pc++; break;			// dcr c
 					
 		// DCX commands
-		case 0x2b: dcr_pair(&c->h,&c->l,c); c->pc++; break;		// dcx h
-		case 0x0b: dcr_pair(&c->b,&c->c,c); c->pc++; break;		// dcx b
+		case 0x2b: dcr_pair(&c->h,&c->l); c->pc++; break;		// dcx h
+		case 0x0b: dcr_pair(&c->b,&c->c); c->pc++; break;		// dcx b
 									
 		// INR commands
 		case 0x3c: c->a = inr(c->a,c); c->pc++; break;			// inr a
@@ -507,8 +555,8 @@ int execute(chip* c)
 			   c->memory[get_hl(c)] = data; 
 			   c->pc++; break;
 		// INX commands
-		case 0x23: inr_pair(&c->h,&c->l,c); c->pc++; break;		// inx h,l 
-		case 0x13: inr_pair(&c->d,&c->e,c); c->pc++; break;		// inx d,e
+		case 0x23: inr_pair(&c->h,&c->l); c->pc++; break;		// inx h,l 
+		case 0x13: inr_pair(&c->d,&c->e); c->pc++; break;		// inx d,e
 						
 		case 0x09: dad(get_bc(c),c); c->pc++; break; 			// dad b,c
 		case 0x19: dad(get_de(c),c); c->pc++; break;			// dad d,e
@@ -566,7 +614,7 @@ int main()
 	return 0;
 }
 
-void debug(uint8_t opcode,chip* c)
+void debug(chip* c)
 {
 	fprintf(stderr,"PC: %04X, AF: %04X, BC: %04X, DE: %04X, HL: %04X, SP: %04X",
 			c->pc, c->a << 8 | format_flags(c), get_bc(c), get_de(c), get_hl(c), c->sp);
