@@ -266,6 +266,23 @@ void dad(uint16_t val, chip* c){
 	c->l = hl & 0xff;
 }
 
+void daa(chip* c){
+	uint8_t high = c->a >> 4;
+	uint8_t low = c->a & 0x0f;	
+	uint8_t correction = 0;
+	if(low > 9 || c->ac){
+		correction += 0x06;	
+	}
+	if(high > 9 || c->cy || (low > 9 && high == 9)){
+		correction += 0x60;	
+	}
+	uint16_t result = c->a + correction;
+	if(result > 0xff) { c->cy = 1; }
+	c->ac = ((c->a&0x0f) + (correction&0x0f) > 0x0f);
+	c->a = result & 0xff;
+	handle_zsp(c->a,c);
+}
+
 void debug(chip* c);
 void mini_bdos(chip* c);
 
@@ -512,25 +529,25 @@ void execute(chip* c)
 
 
 		// PUSH commands
-		case 0xe5: push_stack(c->h,c->l,c); c->pc++; break;		// push h,l
-		case 0xd5: push_stack(c->d,c->e,c); c->pc++; break; 		// push d,e	
-		case 0xc5: push_stack(c->b,c->c,c); c->pc++; break;		// push b,c
-		case 0xf5: push_stack(c->a,format_flags(c), c); c->pc++; break; // push psw
+		case 0xe5: push_stack(c->h,c->l,c); c->pc++; break;			// push h,l
+		case 0xd5: push_stack(c->d,c->e,c); c->pc++; break; 			// push d,e	
+		case 0xc5: push_stack(c->b,c->c,c); c->pc++; break;			// push b,c
+		case 0xf5: push_stack(c->a,format_flags(c), c); c->pc++; break; 	// push psw
 			   	
 		// POP commands
-		case 0xc1: 							// pop b,c
+		case 0xc1: 								// pop b,c
 			  uint16_t bc = pop_stack(c); 
 			  c->b = bc >> 8; c->c = (bc & 0xff);
 			  c->pc++; break; 
-		case 0xd1:							// pop d,e
+		case 0xd1:								// pop d,e
 			  uint16_t de = pop_stack(c); 
 			  c->d = de >> 8; c->e = (de & 0xff);
 			  c->pc++; break; 
-		case 0xe1:							// pop h,l
+		case 0xe1:								// pop h,l
 			  uint16_t hl = pop_stack(c); 
 			  c->h = hl >> 8; c->l = (hl & 0xff);
 			  c->pc++; break; 
-		case 0xf1:							// pop psw
+		case 0xf1:								// pop psw
 			uint16_t psw = pop_stack(c);	  
 			c->a = psw >> 8;
 			unformat_flags(psw,c);
@@ -539,31 +556,35 @@ void execute(chip* c)
 
 			
 		// DCR commands
-		case 0x05: c->b = dcr(c->b,c); c->pc++; break;			// dcr b
-		case 0x0d: c->c = dcr(c->c,c); c->pc++; break;			// dcr c
+		case 0x05: c->b = dcr(c->b,c); c->pc++; break;				// dcr b
+		case 0x0d: c->c = dcr(c->c,c); c->pc++; break;				// dcr c
 					
 		// DCX commands
-		case 0x2b: dcr_pair(&c->h,&c->l); c->pc++; break;		// dcx h
-		case 0x0b: dcr_pair(&c->b,&c->c); c->pc++; break;		// dcx b
+		case 0x2b: dcr_pair(&c->h,&c->l); c->pc++; break;			// dcx h
+		case 0x0b: dcr_pair(&c->b,&c->c); c->pc++; break;			// dcx b
 									
 		// INR commands
-		case 0x3c: c->a = inr(c->a,c); c->pc++; break;			// inr a
-		case 0x14: c->d = inr(c->d,c); c->pc++; break;			// inr d
-		case 0x34: 							// inr m
+		case 0x3c: c->a = inr(c->a,c); c->pc++; break;				// inr a
+		case 0x14: c->d = inr(c->d,c); c->pc++; break;				// inr d
+		case 0x34: 								// inr m
 			   uint8_t data = c->memory[get_hl(c)];
 			   data = inr(data,c); 
 			   c->memory[get_hl(c)] = data; 
 			   c->pc++; break;
 		// INX commands
-		case 0x23: inr_pair(&c->h,&c->l); c->pc++; break;		// inx h,l 
-		case 0x13: inr_pair(&c->d,&c->e); c->pc++; break;		// inx d,e
+		case 0x23: inr_pair(&c->h,&c->l); c->pc++; break;			// inx h,l 
+		case 0x13: inr_pair(&c->d,&c->e); c->pc++; break;			// inx d,e
 						
-		case 0x09: dad(get_bc(c),c); c->pc++; break; 			// dad b,c
-		case 0x19: dad(get_de(c),c); c->pc++; break;			// dad d,e
-		case 0x29: dad(get_hl(c),c); c->pc++; break;			// dad h,l
-		case 0x39: dad(c->sp,c); c->pc++; break;			// dad sp
+		case 0x09: dad(get_bc(c),c); c->pc++; break; 				// dad b,c
+		case 0x19: dad(get_de(c),c); c->pc++; break;				// dad d,e
+		case 0x29: dad(get_hl(c),c); c->pc++; break;				// dad h,l
+		case 0x39: dad(c->sp,c); c->pc++; break;				// dad sp
 
-		case 0xeb:							// xchg h,l with d,e 
+		case 0x27: daa(c); c->pc++; break;					// daa
+		case 0x2f: c->a = ~c->a; c->pc++; break;				// cma
+		case 0x3f: c->cy = (c->cy) ? 0: 1; c->pc++; break;			// cmc
+
+		case 0xeb:								// xchg h,l with d,e 
 			   uint16_t hl_pair = get_hl(c);
 			   uint16_t de_pair = get_de(c);
 			   uint16_t tmp = hl_pair;
@@ -573,13 +594,13 @@ void execute(chip* c)
 			   c->pc++; break;
 
 		// rotate
-		case 0x0f:							// rrc
+		case 0x0f:								// rrc
 			c->cy = c->a & 1;
 			c->a >>= 1;
 			c->a |= (c->cy << 7);	
 			c->pc++;
 			break; 
-		case 0x07:							// rlc
+		case 0x07:								// rlc
 			c->cy = (c->a >> 7);
 			c->a <<= 1;
 			c->a |= c->cy;
@@ -587,13 +608,12 @@ void execute(chip* c)
 			break;
 		
 		// interupts
-		case 0xf3: c->INTE = 0; c->pc++; break;				// di
-		case 0xfb: c->INTE = 1; c->pc++; break;				// ei
+		case 0xf3: c->INTE = 0; c->pc++; break;					// di
+		case 0xfb: c->INTE = 1; c->pc++; break;					// ei
 
-		case 0x00: c->pc++; break;					// nop
-										//
-		case 0x37: c->cy = 1; c->pc++; break;				// stc
-										//
+		case 0x00: c->pc++; break;						// nop
+		case 0x37: c->cy = 1; c->pc++; break;					// stc
+									
 		default: 	
 			printf("\nUnimplemented: %x\n",opcode);
 			is_running = 0;
