@@ -57,12 +57,6 @@ void chip_init(chip* c)
 
 // Helper functions
 
-/*
-void mem_write(uint8_t val, uint16_t addr, chip* c){
-	fprintf(stderr,"PC: %04X, Written val: %02X, to addr: %04X\n",c->pc,val,addr);
-}
-*/
-
 uint16_t make_addr(chip* c)
 {
 	return c->memory[c->pc + 2] << 8 | c->memory[c->pc + 1];
@@ -455,36 +449,7 @@ void execute(chip* c)
 		case 0xbf: cmp(c->a,c); c->pc++; break;					// cmp a
 		case 0xbe: cmp(c->memory[get_hl(c)],c); c->pc++; break;			// cmp m
 		case 0xfe: cmp(c->memory[c->pc+1], c); c->pc+=2; break;			// cpi
-		
-		
-		// LOAD commands (LXI)
-		case 0x01: lxi(opcode,c); c->pc+=3; break;
-		case 0x11: lxi(opcode,c); c->pc+=3; break;
-		case 0x21: lxi(opcode,c); c->pc+=3; break;
-		case 0x31: lxi(opcode,c); c->pc+=3; break;
 
-		// Loading to memory from accumulator
-		case 0x3a: c->a = c->memory[make_addr(c)]; c->pc+=3; break; 		// lda addr
-		case 0x32: c->memory[make_addr(c)] = c->a; c->pc+=3; break;		// sta addr
-										
-		case 0x12: c->memory[get_de(c)] = c->a; c->pc++; break;			// stax d,e
-
-		case 0x0a: c->a = c->memory[get_bc(c)]; c->pc++; break;			// ldax b,c
-		case 0x1a: c->a = c->memory[get_de(c)]; c->pc++; break;			// ldax d,e
-
-		case 0x2a:								// lhld 
-			c->l = c->memory[make_addr(c)];		
-			c->h = c->memory[make_addr(c)+1];	 
-			c->pc+=3; break;
-
-		case 0x22: 								// shld
-			c->memory[make_addr(c)] = c->l;
-			c->memory[make_addr(c)+1] = c->h;
-			c->pc+=3; break;
-
-		case 0xf9: c->sp = get_hl(c); c->pc++; break;				// sphl
-
-		
 		// RET Addr
 		case 0xc9: c->pc = pop_stack(c); break;
 		case 0xd8: c->pc = (c->cy == 1) ? pop_stack(c) : c->pc+1; break;
@@ -508,7 +473,81 @@ void execute(chip* c)
 		case 0xf2: c->pc = (c->sf == 0) ? make_addr(c) : c->pc+3; break;	// jp
 		case 0xe9: c->pc = get_hl(c); break;					// pchl
 
-			
+		// LOAD commands (LXI)
+		case 0x01: lxi(opcode,c); c->pc+=3; break;
+		case 0x11: lxi(opcode,c); c->pc+=3; break;
+		case 0x21: lxi(opcode,c); c->pc+=3; break;
+		case 0x31: lxi(opcode,c); c->pc+=3; break;
+
+		// Loading to memory from accumulator
+		case 0x3a: c->a = c->memory[make_addr(c)]; c->pc+=3; break; 		// lda addr
+		case 0x0a: c->a = c->memory[get_bc(c)]; c->pc++; break;			// ldax b,c
+		case 0x1a: c->a = c->memory[get_de(c)]; c->pc++; break;			// ldax d,e
+
+		case 0x32: c->memory[make_addr(c)] = c->a; c->pc+=3; break;		// sta addr
+		case 0x02: c->memory[get_bc(c)] = c->a; c->pc++; break;			// stax b,c 
+		case 0x12: c->memory[get_de(c)] = c->a; c->pc++; break;			// stax d,e
+		case 0xf9: c->sp = get_hl(c); c->pc++; break;				// sphl	
+											
+		case 0x2a:								// lhld 
+			c->l = c->memory[make_addr(c)];		
+			c->h = c->memory[make_addr(c)+1];	 
+			c->pc+=3; break;
+
+		case 0x22: 								// shld
+			c->memory[make_addr(c)] = c->l;
+			c->memory[make_addr(c)+1] = c->h;
+			c->pc+=3; break;
+
+		// INX commands
+		case 0x23: inr_pair(&c->h,&c->l); c->pc++; break;			// inx h,l 
+		case 0x13: inr_pair(&c->d,&c->e); c->pc++; break;			// inx d,e
+		case 0x03: inr_pair(&c->b,&c->c); c->pc++; break;			// inx b,c
+		case 0x33: c->sp++; c->pc++; break;					// inx sp 
+						
+		case 0x09: dad(get_bc(c),c); c->pc++; break; 				// dad b,c
+		case 0x19: dad(get_de(c),c); c->pc++; break;				// dad d,e
+		case 0x29: dad(get_hl(c),c); c->pc++; break;				// dad h,l
+		case 0x39: dad(c->sp,c); c->pc++; break;				// dad sp
+
+		case 0x27: daa(c); c->pc++; break;					// daa
+		case 0x2f: c->a = ~c->a; c->pc++; break;				// cma
+		case 0x3f: c->cy = (c->cy) ? 0: 1; c->pc++; break;			// cmc
+
+		// DCX commands
+		case 0x2b: dcr_pair(&c->h,&c->l); c->pc++; break;			// dcx h,l
+		case 0x0b: dcr_pair(&c->b,&c->c); c->pc++; break;			// dcx b,c
+		case 0x1b: dcr_pair(&c->d,&c->e); c->pc++; break;			// dcx d,e
+		case 0x3b: c->sp--; c->pc++; break;					// dcx sp
+											
+		// DCR commands
+		case 0x05: c->b = dcr(c->b,c); c->pc++; break;				// dcr b
+		case 0x0d: c->c = dcr(c->c,c); c->pc++; break;				// dcr c
+		case 0x15: c->d = dcr(c->d,c); c->pc++; break;				// dcr d
+		case 0x1d: c->e = dcr(c->e,c); c->pc++; break;				// dcr e
+		case 0x25: c->h = dcr(c->h,c); c->pc++; break;				// dcr h
+		case 0x2d: c->l = dcr(c->l,c); c->pc++; break; 				// dcr l
+		case 0x3d: c->a = dcr(c->a,c); c->pc++; break;				// dcr a
+		case 0x35: uint8_t info = c->memory[get_hl(c)];				// dcr m
+			   info = dcr(info,c);
+			   c->memory[get_hl(c)] = info;
+			   c->pc++; break; 
+
+		// INR commands
+		case 0x3c: c->a = inr(c->a,c); c->pc++; break;				// inr a
+		case 0x04: c->b = inr(c->b,c); c->pc++; break; 				// inr b
+		case 0x0c: c->c = inr(c->c,c); c->pc++; break;				// inr c
+		case 0x14: c->d = inr(c->d,c); c->pc++; break;				// inr d
+		case 0x1c: c->e = inr(c->e,c); c->pc++; break;				// inr e
+		case 0x24: c->h = inr(c->h,c); c->pc++; break;				// inr h
+		case 0x2c: c->l = inr(c->l,c); c->pc++; break;				// inr l
+		case 0x34: 								// inr m
+			   uint8_t data = c->memory[get_hl(c)];
+			   data = inr(data,c); 
+			   c->memory[get_hl(c)] = data; 
+			   c->pc++; break;
+
+					
 		// CALL Addr
 		case 0xcd:			
 			push_stack((c->pc+3) >> 8,(c->pc+3) & 0xff, c);
@@ -600,54 +639,6 @@ void execute(chip* c)
 			break;
 
 			
-		// DCR commands
-		case 0x05: c->b = dcr(c->b,c); c->pc++; break;				// dcr b
-		case 0x0d: c->c = dcr(c->c,c); c->pc++; break;				// dcr c
-		case 0x15: c->d = dcr(c->d,c); c->pc++; break;				// dcr d
-		case 0x1d: c->e = dcr(c->e,c); c->pc++; break;				// dcr e
-		case 0x25: c->h = dcr(c->h,c); c->pc++; break;				// dcr h
-		case 0x2d: c->l = dcr(c->l,c); c->pc++; break; 				// dcr l
-		case 0x3d: c->a = dcr(c->a,c); c->pc++; break;				// dcr a
-		case 0x35: uint8_t info = c->memory[get_hl(c)];				// dcr m
-			   info = dcr(info,c);
-			   c->memory[get_hl(c)] = info;
-			   c->pc++; break; 
-
-					
-		// DCX commands
-		case 0x2b: dcr_pair(&c->h,&c->l); c->pc++; break;			// dcx h,l
-		case 0x0b: dcr_pair(&c->b,&c->c); c->pc++; break;			// dcx b,c
-		case 0x1b: dcr_pair(&c->d,&c->e); c->pc++; break;			// dcx d,e
-		case 0x3b: c->sp--; c->pc++; break;					// dcx sp
-									
-		// INR commands
-		case 0x3c: c->a = inr(c->a,c); c->pc++; break;				// inr a
-		case 0x04: c->b = inr(c->b,c); c->pc++; break; 				// inr b
-		case 0x0c: c->c = inr(c->c,c); c->pc++; break;				// inr c
-		case 0x14: c->d = inr(c->d,c); c->pc++; break;				// inr d
-		case 0x1c: c->e = inr(c->e,c); c->pc++; break;				// inr e
-		case 0x24: c->h = inr(c->h,c); c->pc++; break;				// inr h
-		case 0x2c: c->l = inr(c->l,c); c->pc++; break;				// inr l
-		case 0x34: 								// inr m
-			   uint8_t data = c->memory[get_hl(c)];
-			   data = inr(data,c); 
-			   c->memory[get_hl(c)] = data; 
-			   c->pc++; break;
-		// INX commands
-		case 0x23: inr_pair(&c->h,&c->l); c->pc++; break;			// inx h,l 
-		case 0x13: inr_pair(&c->d,&c->e); c->pc++; break;			// inx d,e
-		case 0x03: inr_pair(&c->b,&c->c); c->pc++; break;			// inx b,c
-		case 0x33: c->sp++; c->pc++; break;					// inx sp 
-						
-		case 0x09: dad(get_bc(c),c); c->pc++; break; 				// dad b,c
-		case 0x19: dad(get_de(c),c); c->pc++; break;				// dad d,e
-		case 0x29: dad(get_hl(c),c); c->pc++; break;				// dad h,l
-		case 0x39: dad(c->sp,c); c->pc++; break;				// dad sp
-
-		case 0x27: daa(c); c->pc++; break;					// daa
-		case 0x2f: c->a = ~c->a; c->pc++; break;				// cma
-		case 0x3f: c->cy = (c->cy) ? 0: 1; c->pc++; break;			// cmc
-
 		case 0xeb:								// xchg h,l with d,e 
 			   uint16_t hl_pair = get_hl(c);
 			   uint16_t de_pair = get_de(c);
@@ -670,6 +661,20 @@ void execute(chip* c)
 			c->a |= c->cy;
 			c->pc++;
 			break;
+		case 0x17:								// ral
+			uint8_t cy_in = c->cy;
+			c->cy = (c->a & 0x80) >> 7;
+			c->a <<= 1;
+			c->a |= cy_in;
+			c->pc++; break;
+		case 0x1f:{								// rar
+			uint8_t cy_in = c->cy;
+			c->cy = c->a&0x01;
+			c->a >>= 1;
+			c->a |= (cy_in << 7);
+			c->pc++; break;
+		}
+
 		
 		// interupts
 		case 0xf3: c->INTE = 0; c->pc++; break;					// di
