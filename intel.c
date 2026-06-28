@@ -558,14 +558,31 @@ void execute(chip* c)
 		// DCR commands
 		case 0x05: c->b = dcr(c->b,c); c->pc++; break;				// dcr b
 		case 0x0d: c->c = dcr(c->c,c); c->pc++; break;				// dcr c
+		case 0x15: c->d = dcr(c->d,c); c->pc++; break;				// dcr d
+		case 0x1d: c->e = dcr(c->e,c); c->pc++; break;				// dcr e
+		case 0x25: c->h = dcr(c->h,c); c->pc++; break;				// dcr h
+		case 0x2d: c->l = dcr(c->l,c); c->pc++; break; 				// dcr l
+		case 0x3d: c->a = dcr(c->a,c); c->pc++; break;				// dcr a
+		case 0x35: uint8_t info = c->memory[get_hl(c)];				// dcr m
+			   info = dcr(info,c);
+			   c->memory[get_hl(c)] = info;
+			   c->pc++; break; 
+
 					
 		// DCX commands
-		case 0x2b: dcr_pair(&c->h,&c->l); c->pc++; break;			// dcx h
-		case 0x0b: dcr_pair(&c->b,&c->c); c->pc++; break;			// dcx b
+		case 0x2b: dcr_pair(&c->h,&c->l); c->pc++; break;			// dcx h,l
+		case 0x0b: dcr_pair(&c->b,&c->c); c->pc++; break;			// dcx b,c
+		case 0x1b: dcr_pair(&c->d,&c->e); c->pc++; break;			// dcx d,e
+		case 0x3b: c->sp--; c->pc++; break;					// dcx sp
 									
 		// INR commands
 		case 0x3c: c->a = inr(c->a,c); c->pc++; break;				// inr a
+		case 0x04: c->b = inr(c->b,c); c->pc++; break; 				// inr b
+		case 0x0c: c->c = inr(c->c,c); c->pc++; break;				// inr c
 		case 0x14: c->d = inr(c->d,c); c->pc++; break;				// inr d
+		case 0x1c: c->e = inr(c->e,c); c->pc++; break;				// inr e
+		case 0x24: c->h = inr(c->h,c); c->pc++; break;				// inr h
+		case 0x2c: c->l = inr(c->l,c); c->pc++; break;				// inr l
 		case 0x34: 								// inr m
 			   uint8_t data = c->memory[get_hl(c)];
 			   data = inr(data,c); 
@@ -574,6 +591,8 @@ void execute(chip* c)
 		// INX commands
 		case 0x23: inr_pair(&c->h,&c->l); c->pc++; break;			// inx h,l 
 		case 0x13: inr_pair(&c->d,&c->e); c->pc++; break;			// inx d,e
+		case 0x03: inr_pair(&c->b,&c->c); c->pc++; break;			// inx b,c
+		case 0x33: c->sp++; c->pc++; break;					// inx sp 
 						
 		case 0x09: dad(get_bc(c),c); c->pc++; break; 				// dad b,c
 		case 0x19: dad(get_de(c),c); c->pc++; break;				// dad d,e
