@@ -299,36 +299,80 @@ void execute(chip* c)
 
 	switch(opcode)
 	{
-		// MOV commands
-		case 0x7c: c->a = c->h; c->pc++; break;
-		case 0x7d: c->a = c->l; c->pc++; break; 
+		case 0x40: c->b = c->b; c->pc++; break;					// mov b,b	
+		case 0x41: c->b = c->c; c->pc++; break;
+		case 0x42: c->b = c->d; c->pc++; break;
+		case 0x43: c->b = c->e; c->pc++; break;		
+		case 0x44: c->b = c->h; c->pc++; break;
+		case 0x45: c->b = c->l; c->pc++; break;
+		case 0x47: c->b = c->a; c->pc++; break;
+		case 0x48: c->c = c->b; c->pc++; break;
+		case 0x49: c->c = c->c; c->pc++; break;		
+		case 0x4a: c->c = c->d; c->pc++; break;
+		case 0x4b: c->c = c->e; c->pc++; break;
+	   	case 0x4c: c->c = c->h; c->pc++; break;
+		case 0x4d: c->c = c->l; c->pc++; break;
+		case 0x4f: c->c = c->a; c->pc++; break;
+		case 0x50: c->d = c->b; c->pc++; break;		   
+		case 0x51: c->d = c->c; c->pc++; break;	   
+		case 0x52: c->d = c->d; c->pc++; break;
+		case 0x53: c->d = c->e; c->pc++; break;
+		case 0x54: c->d = c->h; c->pc++; break;
+		case 0x55: c->d = c->l; c->pc++; break;
+		case 0x57: c->d = c->a; c->pc++; break;
+		case 0x58: c->e = c->b; c->pc++; break;
+		case 0x59: c->e = c->c; c->pc++; break;
+		case 0x5a: c->e = c->d; c->pc++; break;
+	   	case 0x5b: c->e = c->e; c->pc++; break;
+		case 0x5c: c->e = c->h; c->pc++; break;
+		case 0x5d: c->e = c->l; c->pc++; break;
+		case 0x5f: c->e = c->a; c->pc++; break;
+		case 0x60: c->h = c->b; c->pc++; break;
+		case 0x61: c->h = c->c; c->pc++; break;
+		case 0x62: c->h = c->d; c->pc++; break;
+		case 0x63: c->h = c->e; c->pc++; break;
+	   	case 0x64: c->h = c->h; c->pc++; break;
+		case 0x65: c->h = c->l; c->pc++; break;
+		case 0x67: c->h = c->a; c->pc++; break;
+		case 0x68: c->l = c->b; c->pc++; break;
+		case 0x69: c->l = c->c; c->pc++; break;
+		case 0x6a: c->l = c->d; c->pc++; break;
+		case 0x6b: c->l = c->e; c->pc++; break;
+		case 0x6c: c->l = c->h; c->pc++; break;
+		case 0x6d: c->l = c->l; c->pc++; break;
+		case 0x6f: c->l = c->a; c->pc++; break;
 		case 0x78: c->a = c->b; c->pc++; break;
 		case 0x79: c->a = c->c; c->pc++; break;
-		case 0x6f: c->l = c->a; c->pc++; break;
-		case 0x5f: c->e = c->a; c->pc++; break;
-		case 0x54: c->d = c->h; c->pc++; break;
-		case 0x5d: c->e = c->l; c->pc++; break;
-		case 0x7b: c->a = c->e; c->pc++; break;
-		case 0x4f: c->c = c->a; c->pc++; break;
 		case 0x7a: c->a = c->d; c->pc++; break;
-		case 0x47: c->b = c->a; c->pc++; break;
-		case 0x69: c->l = c->c; c->pc++; break;
-
+		case 0x7b: c->a = c->e; c->pc++; break;
+		case 0x7c: c->a = c->h; c->pc++; break;
+		case 0x7d: c->a = c->l; c->pc++; break; 
+		case 0x7f: c->a = c->a; c->pc++; break;
+		
 		case 0x7e: c->a = c->memory[get_hl(c)]; c->pc++; break; 
-		case 0x66: c->h = c->memory[get_hl(c)]; c->pc++; break; 
-		case 0x5e: c->e = c->memory[get_hl(c)]; c->pc++; break;
- 		case 0x46: c->b = c->memory[get_hl(c)]; c->pc++; break;
+		case 0x46: c->b = c->memory[get_hl(c)]; c->pc++; break;
  		case 0x4e: c->c = c->memory[get_hl(c)]; c->pc++; break;
-
+		case 0x56: c->d = c->memory[get_hl(c)]; c->pc++; break;
+		case 0x5e: c->e = c->memory[get_hl(c)]; c->pc++; break;
+		case 0x66: c->h = c->memory[get_hl(c)]; c->pc++; break; 
+		case 0x6e: c->l = c->memory[get_hl(c)]; c->pc++; break;
+		
+		case 0x70: c->memory[get_hl(c)] = c->b; c->pc++; break;
+		case 0x71: c->memory[get_hl(c)] = c->c; c->pc++; break;
+		case 0x72: c->memory[get_hl(c)] = c->d; c->pc++; break;
+		case 0x73: c->memory[get_hl(c)] = c->e; c->pc++; break;
+		case 0x74: c->memory[get_hl(c)] = c->h; c->pc++; break;
+		case 0x75: c->memory[get_hl(c)] = c->l; c->pc++; break;
 		case 0x77: c->memory[get_hl(c)] = c->a; c->pc++; break;
 
-		// MVI commands
-		case 0x3e: c->a = c->memory[c->pc+1]; c->pc+=2; break;
-		case 0x06: c->b = c->memory[c->pc+1]; c->pc+=2; break;
-		case 0x26: c->h = c->memory[c->pc+1]; c->pc+=2; break;
-		case 0x0e: c->c = c->memory[c->pc+1]; c->pc+=2; break;
-		case 0x16: c->d = c->memory[c->pc+1]; c->pc+=2; break;
-		case 0x36: c->memory[get_hl(c)] = c->memory[c->pc+1]; 			 
+		case 0x3e: c->a = c->memory[c->pc+1]; c->pc+=2; break;			// mvi a,d8
+		case 0x06: c->b = c->memory[c->pc+1]; c->pc+=2; break;			// mvi b,d8
+		case 0x26: c->h = c->memory[c->pc+1]; c->pc+=2; break;			// mvi h,d8
+		case 0x0e: c->c = c->memory[c->pc+1]; c->pc+=2; break;			// mvi c,d8
+		case 0x16: c->d = c->memory[c->pc+1]; c->pc+=2; break;			// mvi d,d8
+		case 0x1e: c->e = c->memory[c->pc+1]; c->pc+=2; break;			// mvi e,d8
+		case 0x2e: c->l = c->memory[c->pc+1]; c->pc+=2; break;  		// mvi l,d8
+		case 0x36: c->memory[get_hl(c)] = c->memory[c->pc+1];			// mvi m,d8 			 
 			   c->pc+=2;
 			   break;
 
@@ -425,6 +469,7 @@ void execute(chip* c)
 										
 		case 0x12: c->memory[get_de(c)] = c->a; c->pc++; break;			// stax d,e
 
+		case 0x0a: c->a = c->memory[get_bc(c)]; c->pc++; break;			// ldax b,c
 		case 0x1a: c->a = c->memory[get_de(c)]; c->pc++; break;			// ldax d,e
 
 		case 0x2a:								// lhld 
