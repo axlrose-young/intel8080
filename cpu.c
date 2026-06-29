@@ -1,0 +1,623 @@
+#include "cpu.h"
+
+// helper functions
+static inline uint16_t make_addr(chip* c)
+{
+	return c->memory[c->pc + 2] << 8 | c->memory[c->pc + 1];
+}
+
+// making PSW low byte
+static uint8_t format_flags(chip* c)
+{
+	uint8_t low = 0x00;	
+	low |= c->sf << 7;
+	low |= c->zf << 6;
+	low |= c->ac << 4;
+        low |= c->pf << 2;
+	low |= 0x02;
+	low |= c->cy;	
+	
+	return low;
+}
+
+static void unformat_flags(uint8_t byte, chip* c){
+	c->sf = (byte & 0x80) >> 7;
+	c->zf = (byte & 0x40) >> 6;
+	c->ac = (byte & 0x10) >> 4;
+	c->pf = (byte & 0x04) >> 2;
+	c->cy = byte & 0x01;
+}
+
+// Flags handling
+static inline void handle_zf(uint8_t result,chip* c)
+{
+	c->zf = (result == 0); 
+}
+
+static inline void handle_sf(uint8_t result,chip* c)
+{
+	c->sf = (result >> 7);
+}
+
+static void handle_pf(uint8_t result, chip* c)
+{
+	uint8_t ones = 0;
+	for(uint8_t i=0; i < 8; i++){
+		if((result & (1 << i)) != 0){
+			ones++;	
+		}
+	}
+	c->pf = (ones % 2 == 0);
+}
+
+static inline void handle_zsp(uint8_t result, chip* c){
+	handle_zf(result, c);	
+	handle_sf(result, c);
+	handle_pf(result, c);
+}
+
+// getting resgister pairs
+static inline uint16_t get_bc(chip* c){
+	return (c->b<<8) | c->c;
+}
+
+static inline uint16_t get_de(chip* c){
+	return (c->d<<8) | c->e;
+}
+
+static inline uint16_t get_hl(chip* c){
+	return (c->h<<8) | c->l;
+}
+
+// instruction families
+static void add(uint8_t val, chip* c){
+	uint16_t result = c->a + val;
+	c->cy = (result > 0xff);
+	c->ac = (((c->a&0x0f) + (val&0x0f)) > 0x0f);
+	c->a = result & 0xff;
+	handle_zsp(result,c);
+}
+
+static void add_carry(uint8_t val, chip* c){		
+        uint16_t result = c->a + val + c->cy;
+	c->ac = (((c->a&0x0f) + (val&0x0f) + c->cy) > 0x0f);
+	c->cy = (result > 0xff);
+	handle_zsp(result,c);
+	c->a = result&0xff;
+}
+
+static void sub(uint8_t val, chip* c){
+	c->ac = ((c->a&0x0f) >= (val&0x0f));
+	c->cy = (c->a < val);
+	c->a -= val;
+	handle_zsp(c->a,c);
+}
+
+static void sub_bor(uint8_t val, chip* c){
+	uint8_t cy_in = c->cy;			// cache the carry in
+	c->ac = ((c->a&0x0f) >= (val&0x0f) + cy_in);	
+	c->cy = (c->a < val + cy_in);
+
+	c->a = c->a - val - cy_in;
+	handle_zsp(c->a,c);
+}
+
+static void ora(uint8_t val, chip* c){
+	c->a |= val;
+	c->cy = c->ac = 0;
+	handle_zsp(c->a,c);
+}
+
+static void xra(uint8_t val, chip* c)
+{
+	c->a ^= val;
+	c->cy = c->ac = 0;
+	handle_zsp(c->a,c);
+}
+
+static void logical_and(uint8_t val, chip* c){
+	c->cy = 0;
+	c->ac = (((c->a | val)&8) != 0);	
+	c->a &= val;
+	handle_zsp(c->a,c);
+}
+
+static void push_stack(uint8_t high, uint8_t low, chip* c){
+	c->sp--;
+	c->memory[c->sp] = high;
+	c->sp--;
+	c->memory[c->sp] = low;
+}
+
+static uint16_t pop_stack(chip* c){
+	uint8_t low = c->memory[c->sp];
+	c->sp++;
+	uint8_t high = c->memory[c->sp];
+	c->sp++;
+	return (high << 8) | low;
+}
+
+static uint8_t dcr(uint8_t val, chip* c){
+	c->ac = (val&0x0f) >= (0x01);
+	val--;
+	handle_zsp(val,c);	
+	return val;
+}
+
+static void dcr_pair(uint8_t* high, uint8_t* low){
+	uint16_t val = (*high << 8) | *low;
+	val--;
+	*high = val >> 8;	
+	*low = val & 0xff;
+}
+
+static uint8_t inr(uint8_t val, chip* c){
+	c->ac = ((val&0x0f) + 0x01) > 0x0f; 
+	val++;
+	handle_zsp(val,c);
+	return val;
+}
+
+static void inr_pair(uint8_t* high, uint8_t* low){
+	uint16_t val = (*high << 8) | *low;
+	val++;
+	*high = val >> 8;	
+	*low = val & 0xff;
+}
+
+static void lxi(uint8_t opcode, chip* c)
+{
+	uint8_t rp = (opcode >> 4) & 3;
+	switch(rp)
+	{
+		case 0:	
+			c->b = c->memory[c->pc+2];
+			c->c = c->memory[c->pc+1];
+			break;
+		case 1:
+			c->d = c->memory[c->pc+2];
+			c->e = c->memory[c->pc+1];
+			break;
+		case 2:
+			c->h = c->memory[c->pc+2];
+			c->l = c->memory[c->pc+1];
+			break;
+		case 3:
+			c->sp = make_addr(c);
+			break;
+	}
+}
+
+static void cmp(uint8_t val, chip* c){
+	uint8_t result = c->a - val;
+	c->ac = (c->a & 0x0f) >= (val & 0x0f);
+	c->cy = (c->a < val);
+	handle_zsp(result,c);
+}
+
+static void dad(uint16_t val, chip* c){
+	uint16_t hl = get_hl(c);
+	hl += val;
+	c->cy = (hl < val);			// result if overflows wraps around
+	c->h = hl >> 8;
+	c->l = hl & 0xff;
+}
+
+static void daa(chip* c){
+	uint8_t high = c->a >> 4;
+	uint8_t low = c->a & 0x0f;	
+	uint8_t correction = 0;
+	if(low > 9 || c->ac){
+		correction += 0x06;	
+	}
+	if(high > 9 || c->cy || (low > 9 && high == 9)){
+		correction += 0x60;	
+	}
+	uint16_t result = c->a + correction;
+	if(result > 0xff) { c->cy = 1; }
+	c->ac = ((c->a&0x0f) + (correction&0x0f) > 0x0f);
+	c->a = result & 0xff;
+	handle_zsp(c->a,c);
+}
+
+// main loop
+void execute(chip* c)
+{		
+	uint8_t opcode = c->memory[c->pc];
+
+	switch(opcode)
+	{
+		case 0x40: c->b = c->b; c->pc++; break;					// mov b,b	
+		case 0x41: c->b = c->c; c->pc++; break;
+		case 0x42: c->b = c->d; c->pc++; break;
+		case 0x43: c->b = c->e; c->pc++; break;		
+		case 0x44: c->b = c->h; c->pc++; break;
+		case 0x45: c->b = c->l; c->pc++; break;
+		case 0x47: c->b = c->a; c->pc++; break;
+		case 0x48: c->c = c->b; c->pc++; break;
+		case 0x49: c->c = c->c; c->pc++; break;		
+		case 0x4a: c->c = c->d; c->pc++; break;
+		case 0x4b: c->c = c->e; c->pc++; break;
+	   	case 0x4c: c->c = c->h; c->pc++; break;
+		case 0x4d: c->c = c->l; c->pc++; break;
+		case 0x4f: c->c = c->a; c->pc++; break;
+		case 0x50: c->d = c->b; c->pc++; break;		   
+		case 0x51: c->d = c->c; c->pc++; break;	   
+		case 0x52: c->d = c->d; c->pc++; break;
+		case 0x53: c->d = c->e; c->pc++; break;
+		case 0x54: c->d = c->h; c->pc++; break;
+		case 0x55: c->d = c->l; c->pc++; break;
+		case 0x57: c->d = c->a; c->pc++; break;
+		case 0x58: c->e = c->b; c->pc++; break;
+		case 0x59: c->e = c->c; c->pc++; break;
+		case 0x5a: c->e = c->d; c->pc++; break;
+	   	case 0x5b: c->e = c->e; c->pc++; break;
+		case 0x5c: c->e = c->h; c->pc++; break;
+		case 0x5d: c->e = c->l; c->pc++; break;
+		case 0x5f: c->e = c->a; c->pc++; break;
+		case 0x60: c->h = c->b; c->pc++; break;
+		case 0x61: c->h = c->c; c->pc++; break;
+		case 0x62: c->h = c->d; c->pc++; break;
+		case 0x63: c->h = c->e; c->pc++; break;
+	   	case 0x64: c->h = c->h; c->pc++; break;
+		case 0x65: c->h = c->l; c->pc++; break;
+		case 0x67: c->h = c->a; c->pc++; break;
+		case 0x68: c->l = c->b; c->pc++; break;
+		case 0x69: c->l = c->c; c->pc++; break;
+		case 0x6a: c->l = c->d; c->pc++; break;
+		case 0x6b: c->l = c->e; c->pc++; break;
+		case 0x6c: c->l = c->h; c->pc++; break;
+		case 0x6d: c->l = c->l; c->pc++; break;
+		case 0x6f: c->l = c->a; c->pc++; break;
+		case 0x78: c->a = c->b; c->pc++; break;
+		case 0x79: c->a = c->c; c->pc++; break;
+		case 0x7a: c->a = c->d; c->pc++; break;
+		case 0x7b: c->a = c->e; c->pc++; break;
+		case 0x7c: c->a = c->h; c->pc++; break;
+		case 0x7d: c->a = c->l; c->pc++; break; 
+		case 0x7f: c->a = c->a; c->pc++; break;
+		
+		case 0x7e: c->a = c->memory[get_hl(c)]; c->pc++; break; 
+		case 0x46: c->b = c->memory[get_hl(c)]; c->pc++; break;
+ 		case 0x4e: c->c = c->memory[get_hl(c)]; c->pc++; break;
+		case 0x56: c->d = c->memory[get_hl(c)]; c->pc++; break;
+		case 0x5e: c->e = c->memory[get_hl(c)]; c->pc++; break;
+		case 0x66: c->h = c->memory[get_hl(c)]; c->pc++; break; 
+		case 0x6e: c->l = c->memory[get_hl(c)]; c->pc++; break;
+		
+		case 0x70: c->memory[get_hl(c)] = c->b; c->pc++; break;
+		case 0x71: c->memory[get_hl(c)] = c->c; c->pc++; break;
+		case 0x72: c->memory[get_hl(c)] = c->d; c->pc++; break;
+		case 0x73: c->memory[get_hl(c)] = c->e; c->pc++; break;
+		case 0x74: c->memory[get_hl(c)] = c->h; c->pc++; break;
+		case 0x75: c->memory[get_hl(c)] = c->l; c->pc++; break;
+		case 0x77: c->memory[get_hl(c)] = c->a; c->pc++; break;
+
+		case 0x3e: c->a = c->memory[c->pc+1]; c->pc+=2; break;			// mvi a,d8
+		case 0x06: c->b = c->memory[c->pc+1]; c->pc+=2; break;			// mvi b,d8
+		case 0x26: c->h = c->memory[c->pc+1]; c->pc+=2; break;			// mvi h,d8
+		case 0x0e: c->c = c->memory[c->pc+1]; c->pc+=2; break;			// mvi c,d8
+		case 0x16: c->d = c->memory[c->pc+1]; c->pc+=2; break;			// mvi d,d8
+		case 0x1e: c->e = c->memory[c->pc+1]; c->pc+=2; break;			// mvi e,d8
+		case 0x2e: c->l = c->memory[c->pc+1]; c->pc+=2; break;  		// mvi l,d8
+		case 0x36: c->memory[get_hl(c)] = c->memory[c->pc+1];			// mvi m,d8 			 
+			   c->pc+=2;
+			   break;
+
+		case 0xb0: ora(c->b,c); c->pc++; break;					// ora b
+		case 0xb3: ora(c->e,c); c->pc++; break;					// ora e
+		case 0xb4: ora(c->h,c); c->pc++; break;					// ora h
+		case 0xb5: ora(c->l,c); c->pc++; break;					// ora l
+		case 0xb2: ora(c->d,c); c->pc++; break;					// ora d
+		case 0xb7: ora(c->a,c); c->pc++; break;					// ora a
+		case 0xb1: ora(c->c,c); c->pc++; break;					// ora c
+	 	case 0xb6: ora(c->memory[get_hl(c)],c); c->pc++; break;			// ora m
+		case 0xf6: ora(c->memory[c->pc+1],c); c->pc+=2; break;			// ori d8
+											
+		case 0x80: add(c->b,c); c->pc++; break;					// add b
+		case 0x81: add(c->c,c); c->pc++; break;					// add c
+		case 0x82: add(c->d,c); c->pc++; break;					// add d
+		case 0x83: add(c->e,c); c->pc++; break;					// add e
+		case 0x84: add(c->h,c); c->pc++; break;					// add h
+		case 0x85: add(c->l,c); c->pc++; break;					// add l
+		case 0x87: add(c->a,c); c->pc++; break; 				// add a
+		case 0x86: add(c->memory[get_hl(c)],c); c->pc++; break;			// add m 
+		case 0xc6: add(c->memory[c->pc+1], c); c->pc+=2; break;			// adi d8
+
+		case 0x88: add_carry(c->b,c); c->pc++; break;				// adc b
+		case 0x89: add_carry(c->c,c); c->pc++; break;				// adc c		
+		case 0x8a: add_carry(c->d,c); c->pc++; break;				// adc d
+		case 0x8b: add_carry(c->e,c); c->pc++; break;				// adc e
+		case 0x8c: add_carry(c->h,c); c->pc++; break;				// adc h
+		case 0x8d: add_carry(c->l,c); c->pc++; break;				// adc l
+		case 0x8f: add_carry(c->a,c); c->pc++; break;				// adc a
+		case 0x8e: add_carry(c->memory[get_hl(c)],c); c->pc++; break;		// adc m		
+		case 0xce: add_carry(c->memory[c->pc+1],c); c->pc+=2; break;		// aci d8
+											
+		case 0x90: sub(c->b,c); c->pc++; break; 				// sub b
+		case 0x91: sub(c->c,c); c->pc++; break;					// sub c
+		case 0x92: sub(c->d,c); c->pc++; break;					// sub d
+		case 0x93: sub(c->e,c); c->pc++; break;					// sub e
+		case 0x94: sub(c->h,c); c->pc++; break; 				// sub h
+		case 0x95: sub(c->l,c); c->pc++; break;					// sub l
+		case 0x97: sub(c->a,c); c->pc++; break;					// sub a
+		case 0x96: sub(c->memory[get_hl(c)],c); c->pc++; break;			// sub m
+		case 0xd6: sub(c->memory[c->pc+1],c); c->pc+=2; break;			// sui d8
+											
+		case 0x98: sub_bor(c->b,c); c->pc++; break;				// sbb b
+		case 0x99: sub_bor(c->c,c); c->pc++; break;				// sbb c
+		case 0x9a: sub_bor(c->d,c); c->pc++; break;				// sbb d		
+		case 0x9b: sub_bor(c->e,c); c->pc++; break;				// sbb e
+		case 0x9c: sub_bor(c->h,c); c->pc++; break;				// sbb h
+		case 0x9d: sub_bor(c->l,c); c->pc++; break;				// sbb l
+		case 0x9f: sub_bor(c->a,c); c->pc++; break;				// sbb a
+		case 0x9e: sub_bor(c->memory[get_hl(c)],c); c->pc++; break;		// sbb m
+		case 0xde: sub_bor(c->memory[c->pc+1],c); c->pc+=2; break;		// sbi d8
+											
+		case 0xa1: logical_and(c->c,c); c->pc++; break;				// ana c
+		case 0xa2: logical_and(c->d,c); c->pc++; break;				// ana d
+		case 0xa3: logical_and(c->e,c); c->pc++; break;				// ana e
+		case 0xa4: logical_and(c->h,c); c->pc++; break;				// ana h
+		case 0xa5: logical_and(c->l,c); c->pc++; break;				// ana l
+		case 0xa0: logical_and(c->b,c); c->pc++; break;				// ana b
+		case 0xa7: logical_and(c->a,c); c->pc++; break;				// ana a
+		case 0xa6: logical_and(c->memory[get_hl(c)],c); c->pc++; break;		// ana m
+		case 0xe6: logical_and(c->memory[c->pc+1],c); c->pc+=2; break;  	// ani d8			
+
+		case 0xa8: xra(c->b,c); c->pc++; break;					// xra b
+		case 0xa9: xra(c->c,c); c->pc++; break;					// xra c
+		case 0xaa: xra(c->d,c); c->pc++; break;					// xra d
+		case 0xab: xra(c->e,c); c->pc++; break;					// xra e
+		case 0xac: xra(c->h,c); c->pc++; break;					// xra h
+		case 0xad: xra(c->l,c); c->pc++; break;					// xra l
+		case 0xaf: xra(c->a,c); c->pc++; break;					// xra a 
+	  	case 0xae: xra(c->memory[get_hl(c)],c); c->pc++; break;			// xra m
+		case 0xee: xra(c->memory[c->pc+1],c); c->pc+=2; break;			// xri d8
+
+		case 0xb8: cmp(c->b,c); c->pc++; break;					// cmp b 
+		case 0xb9: cmp(c->c,c); c->pc++; break;					// cmp c
+		case 0xba: cmp(c->d,c); c->pc++; break;					// cmp d
+		case 0xbb: cmp(c->e,c); c->pc++; break;					// cmp e
+		case 0xbc: cmp(c->h,c); c->pc++; break;					// cmp h
+		case 0xbd: cmp(c->l,c); c->pc++; break;					// cmp l	
+		case 0xbf: cmp(c->a,c); c->pc++; break;					// cmp a
+		case 0xbe: cmp(c->memory[get_hl(c)],c); c->pc++; break;			// cmp m
+		case 0xfe: cmp(c->memory[c->pc+1], c); c->pc+=2; break;			// cpi
+
+		// RET Addr
+		case 0xc9: c->pc = pop_stack(c); break;
+		case 0xd8: c->pc = (c->cy == 1) ? pop_stack(c) : c->pc+1; break;
+		case 0xd0: c->pc = (c->cy == 0) ? pop_stack(c) : c->pc+1; break;
+		case 0xe8: c->pc = (c->pf == 1) ? pop_stack(c) : c->pc+1; break;
+		case 0xe0: c->pc = (c->pf == 0) ? pop_stack(c) : c->pc+1; break;
+		case 0xc0: c->pc = (c->zf == 0) ? pop_stack(c) : c->pc+1; break;
+		case 0xc8: c->pc = (c->zf == 1) ? pop_stack(c) : c->pc+1; break;	// rz
+		case 0xf8: c->pc = (c->sf == 1) ? pop_stack(c) : c->pc+1; break;
+		case 0xf0: c->pc = (c->sf == 0) ? pop_stack(c) : c->pc+1; break;
+		
+		// JMP
+		case 0xc3: c->pc = make_addr(c); break;					// jmp	
+		case 0xca: c->pc = (c->zf == 1) ? make_addr(c) : c->pc+3; break;	// jz
+		case 0xc2: c->pc = (c->zf == 0) ? make_addr(c) : c->pc+3; break;  	// jnz 
+		case 0xda: c->pc = (c->cy == 1) ? make_addr(c) : c->pc+3; break; 	// jc
+		case 0xd2: c->pc = (c->cy == 0) ? make_addr(c) : c->pc+3; break;   	// jnc
+		case 0xea: c->pc = (c->pf == 1) ? make_addr(c) : c->pc+3; break;	// jpe
+		case 0xe2: c->pc = (c->pf == 0) ? make_addr(c) : c->pc+3; break;	// jpo
+		case 0xfa: c->pc = (c->sf == 1) ? make_addr(c) : c->pc+3; break;	// jm
+		case 0xf2: c->pc = (c->sf == 0) ? make_addr(c) : c->pc+3; break;	// jp
+		case 0xe9: c->pc = get_hl(c); break;					// pchl
+
+		// LOAD commands (LXI)
+		case 0x01: lxi(opcode,c); c->pc+=3; break;
+		case 0x11: lxi(opcode,c); c->pc+=3; break;
+		case 0x21: lxi(opcode,c); c->pc+=3; break;
+		case 0x31: lxi(opcode,c); c->pc+=3; break;
+
+		// Loading to memory from accumulator
+		case 0x3a: c->a = c->memory[make_addr(c)]; c->pc+=3; break; 		// lda addr
+		case 0x0a: c->a = c->memory[get_bc(c)]; c->pc++; break;			// ldax b,c
+		case 0x1a: c->a = c->memory[get_de(c)]; c->pc++; break;			// ldax d,e
+
+		case 0x32: c->memory[make_addr(c)] = c->a; c->pc+=3; break;		// sta addr
+		case 0x02: c->memory[get_bc(c)] = c->a; c->pc++; break;			// stax b,c 
+		case 0x12: c->memory[get_de(c)] = c->a; c->pc++; break;			// stax d,e
+		case 0xf9: c->sp = get_hl(c); c->pc++; break;				// sphl	
+											
+		case 0x2a:								// lhld 
+			c->l = c->memory[make_addr(c)];		
+			c->h = c->memory[make_addr(c)+1];	 
+			c->pc+=3; break;
+
+		case 0x22: 								// shld
+			c->memory[make_addr(c)] = c->l;
+			c->memory[make_addr(c)+1] = c->h;
+			c->pc+=3; break;
+
+		// INX commands
+		case 0x23: inr_pair(&c->h,&c->l); c->pc++; break;			// inx h,l 
+		case 0x13: inr_pair(&c->d,&c->e); c->pc++; break;			// inx d,e
+		case 0x03: inr_pair(&c->b,&c->c); c->pc++; break;			// inx b,c
+		case 0x33: c->sp++; c->pc++; break;					// inx sp 
+						
+		case 0x09: dad(get_bc(c),c); c->pc++; break; 				// dad b,c
+		case 0x19: dad(get_de(c),c); c->pc++; break;				// dad d,e
+		case 0x29: dad(get_hl(c),c); c->pc++; break;				// dad h,l
+		case 0x39: dad(c->sp,c); c->pc++; break;				// dad sp
+
+		case 0x27: daa(c); c->pc++; break;					// daa
+		case 0x2f: c->a = ~c->a; c->pc++; break;				// cma
+		case 0x3f: c->cy = (c->cy) ? 0: 1; c->pc++; break;			// cmc
+
+		// DCX commands
+		case 0x2b: dcr_pair(&c->h,&c->l); c->pc++; break;			// dcx h,l
+		case 0x0b: dcr_pair(&c->b,&c->c); c->pc++; break;			// dcx b,c
+		case 0x1b: dcr_pair(&c->d,&c->e); c->pc++; break;			// dcx d,e
+		case 0x3b: c->sp--; c->pc++; break;					// dcx sp
+											
+		// DCR commands
+		case 0x05: c->b = dcr(c->b,c); c->pc++; break;				// dcr b
+		case 0x0d: c->c = dcr(c->c,c); c->pc++; break;				// dcr c
+		case 0x15: c->d = dcr(c->d,c); c->pc++; break;				// dcr d
+		case 0x1d: c->e = dcr(c->e,c); c->pc++; break;				// dcr e
+		case 0x25: c->h = dcr(c->h,c); c->pc++; break;				// dcr h
+		case 0x2d: c->l = dcr(c->l,c); c->pc++; break; 				// dcr l
+		case 0x3d: c->a = dcr(c->a,c); c->pc++; break;				// dcr a
+		case 0x35: uint8_t info = c->memory[get_hl(c)];				// dcr m
+			   info = dcr(info,c);
+			   c->memory[get_hl(c)] = info;
+			   c->pc++; break; 
+
+		// INR commands
+		case 0x3c: c->a = inr(c->a,c); c->pc++; break;				// inr a
+		case 0x04: c->b = inr(c->b,c); c->pc++; break; 				// inr b
+		case 0x0c: c->c = inr(c->c,c); c->pc++; break;				// inr c
+		case 0x14: c->d = inr(c->d,c); c->pc++; break;				// inr d
+		case 0x1c: c->e = inr(c->e,c); c->pc++; break;				// inr e
+		case 0x24: c->h = inr(c->h,c); c->pc++; break;				// inr h
+		case 0x2c: c->l = inr(c->l,c); c->pc++; break;				// inr l
+		case 0x34: 								// inr m
+			   uint8_t data = c->memory[get_hl(c)];
+			   data = inr(data,c); 
+			   c->memory[get_hl(c)] = data; 
+			   c->pc++; break;
+
+					
+		// CALL Addr
+		case 0xcd:			
+			push_stack((c->pc+3) >> 8,(c->pc+3) & 0xff, c);
+			c->pc = make_addr(c); 
+			break;
+		case 0xdc:
+			if(c->cy){
+				push_stack((c->pc+3)>>8,(c->pc+3) & 0xff, c); 
+				c->pc = make_addr(c);
+			}
+			else { c->pc += 3; } 
+			break;
+
+		case 0xd4:
+			if(!c->cy){
+				push_stack((c->pc+3)>>8,(c->pc+3) & 0xff, c); 
+				c->pc = make_addr(c);	
+			}
+			else { c->pc += 3; } 
+			break;
+		case 0xec:
+			if(c->pf){
+				push_stack((c->pc+3)>>8,(c->pc+3) & 0xff, c); 
+				c->pc = make_addr(c);	
+			}
+			else { c->pc+=3; }
+			break;
+		case 0xe4:
+			if(!c->pf){
+				push_stack((c->pc+3)>>8,(c->pc+3) & 0xff, c); 
+				c->pc = make_addr(c);	
+			}
+			else { c->pc+=3; }
+			break;
+		case 0xcc:
+			if(c->zf){
+				push_stack((c->pc+3)>>8,(c->pc+3) & 0xff, c); 
+				c->pc = make_addr(c);	
+			}
+			else { c->pc+=3; }
+			break;
+		case 0xc4:
+			if(!c->zf){
+				push_stack((c->pc+3)>>8,(c->pc+3) & 0xff, c); 
+				c->pc = make_addr(c);	
+			}
+			else { c->pc+=3; }
+			break;
+		case 0xfc:
+			if(c->sf){
+				push_stack((c->pc+3)>>8,(c->pc+3) & 0xff, c); 
+				c->pc = make_addr(c);
+			}
+			else { c->pc+=3; }
+			break;
+		case 0xf4:
+			if(!c->sf){
+				push_stack((c->pc+3)>>8,(c->pc+3) & 0xff, c); 
+				c->pc = make_addr(c);
+			}
+			else { c->pc+=3; }
+			break;
+
+
+		// PUSH commands
+		case 0xe5: push_stack(c->h,c->l,c); c->pc++; break;			// push h,l
+		case 0xd5: push_stack(c->d,c->e,c); c->pc++; break; 			// push d,e	
+		case 0xc5: push_stack(c->b,c->c,c); c->pc++; break;			// push b,c
+		case 0xf5: push_stack(c->a,format_flags(c), c); c->pc++; break; 	// push psw
+			   	
+		// POP commands
+		case 0xc1: 								// pop b,c
+			  uint16_t bc = pop_stack(c); 
+			  c->b = bc >> 8; c->c = (bc & 0xff);
+			  c->pc++; break; 
+		case 0xd1:								// pop d,e
+			  uint16_t de = pop_stack(c); 
+			  c->d = de >> 8; c->e = (de & 0xff);
+			  c->pc++; break; 
+		case 0xe1:								// pop h,l
+			  uint16_t hl = pop_stack(c); 
+			  c->h = hl >> 8; c->l = (hl & 0xff);
+			  c->pc++; break; 
+		case 0xf1:								// pop psw
+			uint16_t psw = pop_stack(c);	  
+			c->a = psw >> 8;
+			unformat_flags(psw,c);
+			c->pc++;
+			break;
+
+			
+		case 0xeb:								// xchg h,l with d,e 
+			   uint16_t hl_pair = get_hl(c);
+			   uint16_t de_pair = get_de(c);
+			   uint16_t tmp = hl_pair;
+			   hl_pair = de_pair; de_pair = tmp;
+			   c->h = hl_pair >> 8; c->l = hl_pair & 0xff;
+			   c->d = de_pair >> 8; c->e = de_pair & 0xff;
+			   c->pc++; break;
+
+		// rotate
+		case 0x0f:								// rrc
+			c->cy = c->a & 1;
+			c->a >>= 1;
+			c->a |= (c->cy << 7);	
+			c->pc++;
+			break; 
+		case 0x07:								// rlc
+			c->cy = (c->a >> 7);
+			c->a <<= 1;
+			c->a |= c->cy;
+			c->pc++;
+			break;
+		case 0x17:								// ral
+			uint8_t cy_in = c->cy;
+			c->cy = (c->a & 0x80) >> 7;
+			c->a <<= 1;
+			c->a |= cy_in;
+			c->pc++; break;
+		case 0x1f:{								// rar
+			uint8_t cy_in = c->cy;
+			c->cy = c->a&0x01;
+			c->a >>= 1;
+			c->a |= (cy_in << 7);
+			c->pc++; break;
+		}
+
+		
+		// interupts
+		case 0xf3: c->INTE = 0; c->pc++; break;					// di
+		case 0xfb: c->INTE = 1; c->pc++; break;					// ei
+
+		case 0x00: c->pc++; break;						// nop
+		case 0x37: c->cy = 1; c->pc++; break;					// stc
+									
+	}
+}
+
+
