@@ -581,6 +581,13 @@ void execute(chip* c)
 			   c->h = hl_pair >> 8; c->l = hl_pair & 0xff;
 			   c->d = de_pair >> 8; c->e = de_pair & 0xff;
 			   c->pc++; break;
+		case 0xe3:								// xthl 
+			  uint16_t addr = pop_stack(c);
+			  push_stack(c->h,c->l,c);
+			  c->h = addr >> 8;
+			  c->l = addr & 0xff;
+			  c->pc++; 
+			  break;
 
 		// rotate
 		case 0x0f:								// rrc
@@ -616,7 +623,15 @@ void execute(chip* c)
 
 		case 0x00: c->pc++; break;						// nop
 		case 0x37: c->cy = 1; c->pc++; break;					// stc
-									
+		
+		case 0xdd:	// undocumented opcodes
+		case 0xfd: 	
+		case 0x10: 
+			   
+		default: 
+			printf("Unimplemented opcode: %x", opcode);
+			c->is_running = 0;			
+			break;
 	}
 }
 

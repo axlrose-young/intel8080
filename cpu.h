@@ -1,5 +1,6 @@
 #ifndef CPU_H
 #define CPU_H
+#include <stdio.h>
 #include <stdint.h>
 
 typedef struct {
@@ -14,7 +15,7 @@ typedef struct {
 
 	uint16_t sp;
 	
-	bool INTE;
+	bool INTE, is_running;
 }chip;
 
 void execute(chip* c);
