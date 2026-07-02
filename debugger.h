@@ -3,7 +3,10 @@
 
 #include "cpu.h"
 
-void debug(chip* c);
+extern int breakpoint;
+extern bool pause;
+
+int debug_loop(chip* c);
 
 #endif
 

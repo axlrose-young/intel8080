@@ -1,9 +1,7 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "cpu.h"
-
-static inline uint16_t get_de(chip* c){
-	return (c->d << 8) | c->e;
-}
 
 static uint16_t pop(chip* c){
 	uint8_t low = c->memory[c->sp];
@@ -25,17 +23,15 @@ void mini_bdos(chip* c)
 				addr++;
 			}
 			fflush(stdout);
-
-			// RET to addr after CALL 5
-			c->pc = pop(c);
 			break;
 		case 2:
 			printf("%c",c->e);
 			fflush(stdout);
-			c->pc = pop(c);
 			break;
 		default:
 			printf("unimplemented bdos: %d\n",c->c);
+			c->is_running = 0;
 			break;
 	}
+	c->pc = pop(c);
 }

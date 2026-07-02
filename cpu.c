@@ -7,7 +7,7 @@ static inline uint16_t make_addr(chip* c)
 }
 
 // making PSW low byte
-static uint8_t format_flags(chip* c)
+ uint8_t format_flags(chip* c)
 {
 	uint8_t low = 0x00;	
 	low |= c->sf << 7;
@@ -57,15 +57,15 @@ static inline void handle_zsp(uint8_t result, chip* c){
 }
 
 // getting resgister pairs
-static inline uint16_t get_bc(chip* c){
+uint16_t get_bc(chip* c){
 	return (c->b<<8) | c->c;
 }
 
-static inline uint16_t get_de(chip* c){
+uint16_t get_de(chip* c){
 	return (c->d<<8) | c->e;
 }
 
-static inline uint16_t get_hl(chip* c){
+uint16_t get_hl(chip* c){
 	return (c->h<<8) | c->l;
 }
 

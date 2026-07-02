@@ -18,6 +18,11 @@ typedef struct {
 	bool INTE, is_running;
 }chip;
 
+uint8_t format_flags(chip* c);
+uint16_t get_bc(chip* c);
+uint16_t get_de(chip* c);
+uint16_t get_hl(chip* c);
+
 void execute(chip* c);
 
 #endif
