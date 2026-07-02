@@ -32,7 +32,11 @@ int main(int argc, char** argv){
 	}
 
 	while(c.is_running){
-		if(is_debug){
+		if(!is_debug){
+			execute(&c);
+			if(c.pc == 5) { mini_bdos(&c); }
+		}
+		else{
 			if(pause){
 				printf("d>");	
 				
@@ -69,17 +73,13 @@ int main(int argc, char** argv){
 				}
 				
 			}
-
 			if(c.pc == breakpoint){
 				printf("PC: %04X\n",c.pc);
 				pause = 1;
 				continue;
 			}
 			execute(&c);
-		}
-		else{
-			execute(&c);
-			if(c.pc == 5) { mini_bdos(&c); }
+			if(c.pc == 5) { mini_bdos(&c); }		
 		}
 	}
 
