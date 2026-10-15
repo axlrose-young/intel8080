@@ -1,13 +1,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "debugger.h"
+#include "cpu.h"
 
 int breakpoint = 0;
 bool pause = 1;
 
-int debug_loop(chip* c){
-	printf("d>");	
+void debugger_help();
+void debugger_message();
+
+int 
+debug_loop(chip* c)
+{
+	printf("d> ");	
 			
 	char* buffer = malloc(50);
 	fgets(buffer,50,stdin);
@@ -40,5 +45,24 @@ int debug_loop(chip* c){
 		printf("running...\n");
 		pause = 0;	
 	}
+	else if (strcmp(token[0],"h") == 0) {
+		debugger_help();	
+	}
 	return 0;
 } 
+
+void 
+debugger_help()
+{
+	printf("show intruction and step: s\n");
+	printf("to set breakpoint: break <point>\n");
+	printf("to run the program: run\n");
+	printf("to quit: q\n");
+}
+
+void 
+debugger_message() 
+{
+	printf("This is the intel8080 debugger\n");
+	printf("Type h for help\n");
+}

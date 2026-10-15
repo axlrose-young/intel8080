@@ -1,16 +1,15 @@
 #ifndef CPU_H
 #define CPU_H
-#include <stdio.h>
 #include <stdint.h>
 
 typedef struct {
 	uint8_t memory[0xffff];
 	uint16_t pc;
 
-	// work registers
+	/* work registers */
 	uint8_t a,b,c,d,e,h,l; 
 
-	//flags
+	/* flags */
 	bool sf, zf, pf, cy, ac;
 
 	uint16_t sp;

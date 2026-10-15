@@ -1,13 +1,17 @@
+#include <stdio.h>
+#include <stdint.h>
 #include "cpu.h"
 
-// helper functions
-static inline uint16_t make_addr(chip* c)
+/* helper functions */
+static inline uint16_t 
+make_addr(chip* c)
 {
 	return c->memory[c->pc + 2] << 8 | c->memory[c->pc + 1];
 }
 
-// making PSW low byte
- uint8_t format_flags(chip* c)
+/* making PSW low byte */
+uint8_t 
+format_flags(chip* c)
 {
 	uint8_t low = 0x00;	
 	low |= c->sf << 7;
@@ -20,7 +24,9 @@ static inline uint16_t make_addr(chip* c)
 	return low;
 }
 
-static void unformat_flags(uint8_t byte, chip* c){
+static void 
+unformat_flags(uint8_t byte, chip* c)
+{
 	c->sf = (byte & 0x80) >> 7;
 	c->zf = (byte & 0x40) >> 6;
 	c->ac = (byte & 0x10) >> 4;
@@ -28,18 +34,21 @@ static void unformat_flags(uint8_t byte, chip* c){
 	c->cy = byte & 0x01;
 }
 
-// Flags handling
-static inline void handle_zf(uint8_t result,chip* c)
+/* Flags handling */
+static inline void 
+handle_zf(uint8_t result,chip* c)
 {
 	c->zf = (result == 0); 
 }
 
-static inline void handle_sf(uint8_t result,chip* c)
+static inline void 
+handle_sf(uint8_t result,chip* c)
 {
 	c->sf = (result >> 7);
 }
 
-static void handle_pf(uint8_t result, chip* c)
+static void 
+handle_pf(uint8_t result, chip* c)
 {
 	uint8_t ones = 0;
 	for(uint8_t i=0; i < 8; i++){
@@ -50,27 +59,37 @@ static void handle_pf(uint8_t result, chip* c)
 	c->pf = (ones % 2 == 0);
 }
 
-static inline void handle_zsp(uint8_t result, chip* c){
+static inline void 
+handle_zsp(uint8_t result, chip* c)
+{
 	handle_zf(result, c);	
 	handle_sf(result, c);
 	handle_pf(result, c);
 }
 
-// getting resgister pairs
-uint16_t get_bc(chip* c){
+/* getting resgister pairs */
+uint16_t 
+get_bc(chip* c)
+{
 	return (c->b<<8) | c->c;
 }
 
-uint16_t get_de(chip* c){
+uint16_t 
+get_de(chip* c)
+{
 	return (c->d<<8) | c->e;
 }
 
-uint16_t get_hl(chip* c){
+uint16_t 
+get_hl(chip* c)
+{
 	return (c->h<<8) | c->l;
 }
 
-// instruction families
-static void add(uint8_t val, chip* c){
+/* instruction families */
+static void 
+add(uint8_t val, chip* c)
+{
 	uint16_t result = c->a + val;
 	c->cy = (result > 0xff);
 	c->ac = (((c->a&0x0f) + (val&0x0f)) > 0x0f);
@@ -78,7 +97,9 @@ static void add(uint8_t val, chip* c){
 	handle_zsp(result,c);
 }
 
-static void add_carry(uint8_t val, chip* c){		
+static void 
+add_carry(uint8_t val, chip* c)
+{		
         uint16_t result = c->a + val + c->cy;
 	c->ac = (((c->a&0x0f) + (val&0x0f) + c->cy) > 0x0f);
 	c->cy = (result > 0xff);
@@ -86,14 +107,18 @@ static void add_carry(uint8_t val, chip* c){
 	c->a = result&0xff;
 }
 
-static void sub(uint8_t val, chip* c){
+static void 
+sub(uint8_t val, chip* c)
+{
 	c->ac = ((c->a&0x0f) >= (val&0x0f));
 	c->cy = (c->a < val);
 	c->a -= val;
 	handle_zsp(c->a,c);
 }
 
-static void sub_bor(uint8_t val, chip* c){
+static void 
+sub_bor(uint8_t val, chip* c)
+{
 	uint8_t cy_in = c->cy;			// cache the carry in
 	c->ac = ((c->a&0x0f) >= (val&0x0f) + cy_in);	
 	c->cy = (c->a < val + cy_in);
@@ -102,7 +127,9 @@ static void sub_bor(uint8_t val, chip* c){
 	handle_zsp(c->a,c);
 }
 
-static void ora(uint8_t val, chip* c){
+static void 
+ora(uint8_t val, chip* c)
+{
 	c->a |= val;
 	c->cy = c->ac = 0;
 	handle_zsp(c->a,c);
@@ -115,21 +142,27 @@ static void xra(uint8_t val, chip* c)
 	handle_zsp(c->a,c);
 }
 
-static void logical_and(uint8_t val, chip* c){
+static void 
+logical_and(uint8_t val, chip* c)
+{
 	c->cy = 0;
 	c->ac = (((c->a | val)&8) != 0);	
 	c->a &= val;
 	handle_zsp(c->a,c);
 }
 
-static void push_stack(uint8_t high, uint8_t low, chip* c){
+static void 
+push_stack(uint8_t high, uint8_t low, chip* c)
+{
 	c->sp--;
 	c->memory[c->sp] = high;
 	c->sp--;
 	c->memory[c->sp] = low;
 }
 
-static uint16_t pop_stack(chip* c){
+static uint16_t 
+pop_stack(chip* c)
+{
 	uint8_t low = c->memory[c->sp];
 	c->sp++;
 	uint8_t high = c->memory[c->sp];
@@ -137,35 +170,44 @@ static uint16_t pop_stack(chip* c){
 	return (high << 8) | low;
 }
 
-static uint8_t dcr(uint8_t val, chip* c){
+static uint8_t 
+dcr(uint8_t val, chip* c)
+{
 	c->ac = (val&0x0f) >= (0x01);
 	val--;
 	handle_zsp(val,c);	
 	return val;
 }
 
-static void dcr_pair(uint8_t* high, uint8_t* low){
+static void 
+dcr_pair(uint8_t* high, uint8_t* low)
+{
 	uint16_t val = (*high << 8) | *low;
 	val--;
 	*high = val >> 8;	
 	*low = val & 0xff;
 }
 
-static uint8_t inr(uint8_t val, chip* c){
+static uint8_t 
+inr(uint8_t val, chip* c)
+{
 	c->ac = ((val&0x0f) + 0x01) > 0x0f; 
 	val++;
 	handle_zsp(val,c);
 	return val;
 }
 
-static void inr_pair(uint8_t* high, uint8_t* low){
+static void 
+inr_pair(uint8_t* high, uint8_t* low)
+{
 	uint16_t val = (*high << 8) | *low;
 	val++;
 	*high = val >> 8;	
 	*low = val & 0xff;
 }
 
-static void lxi(uint8_t opcode, chip* c)
+static void 
+lxi(uint8_t opcode, chip* c)
 {
 	uint8_t rp = (opcode >> 4) & 3;
 	switch(rp)
@@ -188,14 +230,18 @@ static void lxi(uint8_t opcode, chip* c)
 	}
 }
 
-static void cmp(uint8_t val, chip* c){
+static void 
+cmp(uint8_t val, chip* c)
+{
 	uint8_t result = c->a - val;
 	c->ac = (c->a & 0x0f) >= (val & 0x0f);
 	c->cy = (c->a < val);
 	handle_zsp(result,c);
 }
 
-static void dad(uint16_t val, chip* c){
+static void 
+dad(uint16_t val, chip* c)
+{
 	uint16_t hl = get_hl(c);
 	hl += val;
 	c->cy = (hl < val);			// result if overflows wraps around
@@ -203,7 +249,9 @@ static void dad(uint16_t val, chip* c){
 	c->l = hl & 0xff;
 }
 
-static void daa(chip* c){
+static void 
+daa(chip* c)
+{
 	uint8_t high = c->a >> 4;
 	uint8_t low = c->a & 0x0f;	
 	uint8_t correction = 0;
@@ -221,7 +269,8 @@ static void daa(chip* c){
 }
 
 // main loop
-void execute(chip* c)
+void 
+execute(chip* c)
 {		
 	uint8_t opcode = c->memory[c->pc];
 

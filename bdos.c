@@ -3,7 +3,9 @@
 #include <string.h>
 #include "cpu.h"
 
-static uint16_t pop(chip* c){
+static uint16_t 
+pop(chip* c)
+{
 	uint8_t low = c->memory[c->sp];
 	c->sp++;
 	uint8_t high = c->memory[c->sp];
